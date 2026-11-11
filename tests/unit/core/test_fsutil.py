@@ -530,3 +530,63 @@ def test_lock_folder_cannot_be_created(tmp_path: Path) -> None:
     lock = RepoLock(tmp_path / "repo", lock_dir=blocker / "locks")
     with pytest.raises(RepoStateError, match="cannot be created"):
         lock.acquire()
+
+
+def test_lock_file_that_cannot_be_created_or_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = RepoLock(tmp_path / "repo", lock_dir=tmp_path / "locks")
+
+    def denied(*args: object, **kwargs: object) -> int:
+        raise PermissionError(13, "Access is denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "open", denied)
+        with pytest.raises(RepoStateError, match="lock file .* cannot be created"):
+            lock.acquire()
+    assert not lock.held
+
+    _write_lock(lock, os.getpid(), psutil.Process().create_time())
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_bytes", denied)
+        with pytest.raises(RepoLockedError, match="exists but cannot be read"):
+            lock.acquire()
+    assert lock.lock_file.exists()
+
+
+def test_stale_lock_that_cannot_be_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lock = RepoLock(tmp_path / "repo", lock_dir=tmp_path / "locks")
+    _write_lock(lock, _dead_pid(), 1.0)
+
+    def denied(path: object) -> None:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(os, "unlink", denied)
+    with pytest.raises(RepoLockedError, match="stale lock file .* cannot be removed"):
+        lock.acquire()
+
+
+def test_lock_that_another_instance_keeps_taking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = RepoLock(tmp_path / "repo", lock_dir=tmp_path / "locks")
+    monkeypatch.setattr(RepoLock, "_try_create", lambda self: False)
+    with pytest.raises(RepoLockedError, match="could not be taken"):
+        lock.acquire()  # the lock file vanished each time it was inspected, then reappeared
+
+
+def test_release_when_the_lock_file_cannot_be_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    lock = RepoLock(tmp_path / "repo", lock_dir=tmp_path / "locks")
+    lock.acquire()
+
+    def denied(path: object) -> None:
+        raise PermissionError(13, "Access is denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "unlink", denied)
+        with caplog.at_level("WARNING", logger="porttool"):
+            lock.release()
+    assert "could not be removed" in caplog.text
+    assert not lock.held
