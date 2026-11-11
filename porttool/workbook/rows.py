@@ -114,7 +114,7 @@ def number_cell(value: float | None) -> CellValue:
 
 
 def period_ms_cell(period_s: float | None) -> CellValue:
-    """Seconds -> milliseconds without binary noise (0.007 s is 7 ms, not 7.000000000000001)."""
+    """Seconds -> milliseconds without binary noise: 0.01597 s is 15.97, not 15.970000000000002."""
     if period_s is None:
         return ""
     return number_cell(round(period_s * 1000.0, 6))
