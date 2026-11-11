@@ -21,6 +21,8 @@ Reference repository (all under Config/Developer unless noted):
     Config/ECUC/Ecu_ecuc.arxml      3 OS tasks, task mappings (ECUC file, outside the roots)
 """
 
+# ruff: noqa: E501 - the XML is written out by hand and kept one element per line
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -84,7 +86,9 @@ def swc(
     return f"<{kind}>{inner}</{kind}>"
 
 
-def p_port(name: str, interface: str, dest: str = "SENDER-RECEIVER-INTERFACE", inner: str = "") -> str:
+def p_port(
+    name: str, interface: str, dest: str = "SENDER-RECEIVER-INTERFACE", inner: str = ""
+) -> str:
     return (
         f"<P-PORT-PROTOTYPE><SHORT-NAME>{name}</SHORT-NAME>{inner}"
         f'<PROVIDED-INTERFACE-TREF DEST="{dest}">{interface}</PROVIDED-INTERFACE-TREF>'
@@ -92,7 +96,9 @@ def p_port(name: str, interface: str, dest: str = "SENDER-RECEIVER-INTERFACE", i
     )
 
 
-def r_port(name: str, interface: str, dest: str = "SENDER-RECEIVER-INTERFACE", inner: str = "") -> str:
+def r_port(
+    name: str, interface: str, dest: str = "SENDER-RECEIVER-INTERFACE", inner: str = ""
+) -> str:
     return (
         f"<R-PORT-PROTOTYPE><SHORT-NAME>{name}</SHORT-NAME>{inner}"
         f'<REQUIRED-INTERFACE-TREF DEST="{dest}">{interface}</REQUIRED-INTERFACE-TREF>'
@@ -1188,4 +1194,3 @@ def write_sample_repo(root: Path, *, ecuc: bool = True) -> None:
         write(root, rel, text)
     if ecuc:
         write(root, F_ECUC, ecuc_doc())
-EOF_NEVER
