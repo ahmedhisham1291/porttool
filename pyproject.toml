@@ -16,6 +16,9 @@ dependencies = [
   "psutil>=5.9",
 ]
 
+[project.scripts]
+porttool = "porttool.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "playwright>=1.40", "mypy>=1.10", "ruff>=0.5"]
 
