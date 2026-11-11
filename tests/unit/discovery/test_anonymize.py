@@ -92,8 +92,8 @@ def test_the_leak_detector_itself_finds_names_in_a_report_that_is_not_anonymized
     synth.git_init(repo, branch="feature/secret-branch")
     result = discover(repo)
     found = _leaks(all_output_text(result.out_dir), _secret_words())
-    assert {"SwcAlpha", "SwcModel", "DevWs", "EcuComposition", "IfSpeed", "EcuProj",
-            "GoneAway", "MyDataTypes", "DetService", "feature/secret-branch"} <= set(found)  # fmt: skip
+    expected = "SwcAlpha SwcModel DevWs EcuComposition IfSpeed EcuProj GoneAway MyDataTypes"
+    assert set(expected.split()) | {"DetService", "feature/secret-branch"} <= set(found)
 
 
 def test_anonymize_golden_diff_has_no_original_name_either(repo: Path, tmp_path: Path) -> None:
@@ -219,8 +219,9 @@ def test_names_tokens_keep_structure_extensions_and_separators() -> None:
 
 def test_names_values_keep_only_what_cannot_identify_the_project() -> None:
     names = Names(anonymize=True, key=b"k")
-    for kept in ("42", "-1.5e3", "0x1F", "true", "4.2.2", "2026-01-31T10:00:00Z", "  ",
-                 "3F2504E0-4F89-41D3-9A0C-0305E82C3301", "http://autosar.org/schema/r4.0"):  # fmt: skip
+    uuid, namespace = "3F2504E0-4F89-41D3-9A0C-0305E82C3301", "http://autosar.org/schema/r4.0"
+    plain = ("42", "-1.5e3", "0x1F", "true", "4.2.2", "2026-01-31T10:00:00Z", "  ")
+    for kept in (*plain, uuid, namespace):
         assert names.value(kept) == kept
     assert _TOKEN_RE.match(names.value("COMPONENTTYPE"))  # strict: could be a project word
     assert names.value("NOT-ACCESSIBLE", allow_enum=True) == "NOT-ACCESSIBLE"
@@ -232,7 +233,9 @@ def test_names_values_keep_only_what_cannot_identify_the_project() -> None:
     assert names.definition_ref("/MICROSAR/Rte/RteX") == "/MICROSAR/Rte/RteX"
     assert names.definition_ref("/Company/Cdd") == names.ar_path("/Company/Cdd")
     assert names.external("git said: secret") == "[text removed by --anonymize: 16 characters]"
-    kept = names.tool_path("C:\\Program Files (x86)\\Vector DaVinci Developer 4.12\\Bin\\DVImEx.exe")
+    kept = names.tool_path(
+        "C:\\Program Files (x86)\\Vector DaVinci Developer 4.12\\Bin\\DVImEx.exe"
+    )
     assert kept == "C:\\Program Files (x86)\\Vector DaVinci Developer 4.12\\Bin\\DVImEx.exe"
     hidden = names.tool_path("D:\\Projects\\Secret\\Sip\\DaVinciConfigurator\\Core\\DVCfgCmd.exe")
     assert "Secret" not in hidden and hidden.endswith("\\DaVinciConfigurator\\Core\\DVCfgCmd.exe")

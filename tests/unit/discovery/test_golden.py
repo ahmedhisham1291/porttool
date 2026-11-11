@@ -61,7 +61,7 @@ def _reference_change(repo: Path) -> tuple[str, str]:
 def golden(repo: Path) -> dict[str, Any]:
     base, head = _reference_change(repo)
     result = run_golden_diff(GoldenDiffOptions(repo=str(repo), base=base, head=head))
-    report = result.report["golden_diff"]
+    report: dict[str, Any] = result.report["golden_diff"]
     report["_files"] = {item["path"]: item for item in report["files"]}
     report["_result"] = result
     return report

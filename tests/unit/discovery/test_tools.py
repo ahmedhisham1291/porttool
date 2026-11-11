@@ -13,6 +13,7 @@ import pytest
 
 from porttool.discovery import proc, tools
 from porttool.discovery.context import Context
+from porttool.discovery.fsio import FileEntry
 from porttool.discovery.proc import decode_output, hidden_window_options, run_captured
 from porttool.discovery.tools import (
     HELP_FLAGS,
@@ -46,7 +47,7 @@ def _with_tools(**extra: object) -> dict[str, object]:
 def _alive(pid: int) -> bool:
     if not psutil.pid_exists(pid):
         return False
-    return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    return bool(psutil.Process(pid).status() != psutil.STATUS_ZOMBIE)
 
 
 # ---- safety rule
@@ -66,16 +67,17 @@ def test_no_project_or_workspace_path_is_ever_passed_to_a_tool(
     for name in tools.ALL_TOOLS:
         _fake(tmp_path / "bin", name, synth.FAKE_GOOD)
     seen: list[tuple[list[str], str | None]] = []
-    real = tools.run_captured
 
     def spy(argv, **kwargs):  # type: ignore[no-untyped-def]
         seen.append((list(argv), kwargs.get("cwd")))
-        return real(argv, **kwargs)
+        return run_captured(argv, **kwargs)
 
-    monkeypatch.setattr(tools, "run_captured", spy)
+    monkeypatch.setattr("porttool.discovery.tools.run_captured", spy)
     discover(
         git_repo,
-        **_with_tools(developer_bin=str(tmp_path / "bin"), dpa=str(git_repo / "Config/EcuProj.dpa")),
+        **_with_tools(
+            developer_bin=str(tmp_path / "bin"), dpa=str(git_repo / "Config/EcuProj.dpa")
+        ),
     )
     assert len(seen) == 4 * len(HELP_FLAGS)
     for argv, cwd in seen:
@@ -141,9 +143,7 @@ def test_tool_that_prints_non_utf8_bytes_is_saved_without_losing_bytes(
     result = discover(git_repo, **_with_tools(developer_bin=str(tmp_path / "bin")))
     attempt = result.report["tools"]["executables"][0]["attempts"][0]
     assert attempt["decoding"] == "utf-8 with \\x escapes"
-    text = (Path(result.out_dir) / "cli" / "DVSwcGen_dashdash-help.txt").read_text(
-        encoding="utf-8"
-    )
+    text = (Path(result.out_dir) / "cli" / "DVSwcGen_dashdash-help.txt").read_text(encoding="utf-8")
     assert "Usage \\xff\\xfa caf\\xe9" in text
     assert decode_output(b"\xff\xfeh\x00i\x00") == ("hi", "utf-16")
     assert decode_output(b"") == ("", "empty")
@@ -231,7 +231,7 @@ def test_search_covers_developer_bin_program_files_sip_dpa_paths_and_repo(
 def test_tool_inside_the_repo_is_found_without_any_option(repo: Path, tmp_path: Path) -> None:
     (repo / "Config" / "EcuProj.dpa").unlink()
     path = _fake(repo / "Tools" / "DaVinciConfigurator" / "Core", "dvcfgcmd", synth.FAKE_GOOD)
-    entry = tools.FileEntry("Tools/DaVinciConfigurator/Core/dvcfgcmd.py", str(path), 1, 0)
+    entry = FileEntry("Tools/DaVinciConfigurator/Core/dvcfgcmd.py", str(path), 1, 0)
     found = find_executables(ToolSearch(repo_files=[entry], suffixes=PY, environ={}))
     assert [(item.tool, item.found_via) for item in found] == [("DVCfgCmd", "inside the repo")]
 
@@ -243,9 +243,7 @@ def test_folder_given_with_option_that_does_not_exist_is_a_finding(
     assert "DISC-TOOL-FOLDER" in codes(result)
 
 
-def test_only_the_first_three_copies_of_a_tool_are_started(
-    git_repo: Path, tmp_path: Path
-) -> None:
+def test_only_the_first_three_copies_of_a_tool_are_started(git_repo: Path, tmp_path: Path) -> None:
     for number in range(4):
         _fake(tmp_path / "bin" / f"v{number}", "DVImEx", synth.FAKE_GOOD)
     ctx = Context()
@@ -316,9 +314,7 @@ def test_kill_process_tree_of_a_process_that_is_already_gone() -> None:
 
 
 def test_output_longer_than_the_limit_is_cut_and_flagged() -> None:
-    result = run_captured(
-        [sys.executable, "-c", "print('x' * 5000)"], timeout_s=20, max_bytes=100
-    )
+    result = run_captured([sys.executable, "-c", "print('x' * 5000)"], timeout_s=20, max_bytes=100)
     assert result.ok and result.truncated and len(result.stdout) == 100
 
 

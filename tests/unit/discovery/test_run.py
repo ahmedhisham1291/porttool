@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from porttool.core.errors import ConfigError, WriteError
-from porttool.discovery import register_cli, runner, sections
+from porttool.discovery import arxml_scan, fsio, register_cli, runner, sections
 from porttool.discovery.runner import DiscoveryOptions, run_discovery
 from tests.unit.discovery import synth
 from tests.unit.discovery.conftest import Runner, codes, load_json
@@ -92,9 +92,7 @@ def test_workspace_index_summarises_unknown_format_and_compares_with_disk(
     assert arxml["attributes"]["ROOTITEM"]["distinct"] == "3"
     listing = dcf["arxml"]
     assert listing["listed"] == 9 and listing["listed_existing"] == 8
-    assert listing["listed_missing"]["items"] == [
-        "Config\\DevWs\\ComponentTypes\\GoneAway.arxml"
-    ]
+    assert listing["listed_missing"]["items"] == ["Config\\DevWs\\ComponentTypes\\GoneAway.arxml"]
     assert listing["on_disk_not_listed_in_folders_with_listed_files"]["items"] == [
         "Config/DevWs/ComponentTypes/Unlisted.arxml"
     ]
@@ -182,9 +180,7 @@ def test_composition_shape_finds_nesting_connectors_and_root(
     assert "SOFTWARE-COMPOSITION-TREF" in root[0]["reason"]
 
 
-def test_owner_proposal_marks_model_and_locked_candidates(
-    git_repo: Path, discover: Runner
-) -> None:
+def test_owner_proposal_marks_model_and_locked_candidates(git_repo: Path, discover: Runner) -> None:
     result = discover(git_repo)
     owners = result.report["owners"]
     model = owners["model_candidates"]
@@ -281,7 +277,9 @@ def test_dcf_that_is_not_xml_at_all_is_described_by_line_shapes(
     assert dcf["arxml"]["listed"] == 2 and dcf["arxml"]["listed_missing"]["count"] == 1
 
 
-def test_explicit_dpa_outside_the_walk_is_used(repo: Path, tmp_path: Path, discover: Runner) -> None:
+def test_explicit_dpa_outside_the_walk_is_used(
+    repo: Path, tmp_path: Path, discover: Runner
+) -> None:
     (repo / "Config" / "EcuProj.dpa").unlink()
     elsewhere = synth.write(tmp_path / "elsewhere", "Other.dpa", synth.DPA)
     result = discover(repo, dpa=str(elsewhere))
@@ -306,12 +304,11 @@ def test_arxml_with_bom_utf16_and_crlf_is_read_and_style_is_reported(
     synth.write(repo, "Enc/Crlf.arxml", crlf.encode("utf-8"))
     result = discover(repo)
     assert result.report["inventory"]["problem_files"] == []
-    assert result.report["inventory"]["top_level_kinds"]["APPLICATION-SW-COMPONENT-TYPE"][
-        "objects"
-    ] == 6
-    folder = next(
-        row for row in result.report["xml_style"]["by_folder"] if row["folder"] == "Enc"
+    assert (
+        result.report["inventory"]["top_level_kinds"]["APPLICATION-SW-COMPONENT-TYPE"]["objects"]
+        == 6
     )
+    folder = next(row for row in result.report["xml_style"]["by_folder"] if row["folder"] == "Enc")
     assert folder["bom"] == {"none": 1, "utf-16-le": 1, "utf-8": 1}
     assert folder["declared_encoding"] == {"UTF-8": 2, "UTF-16": 1}
     assert folder["line_endings"] == {"lf": 2, "crlf": 1}
@@ -346,14 +343,12 @@ def test_empty_and_truncated_files_are_listed_never_fatal(repo: Path, discover: 
 def test_unreadable_file_is_a_finding(
     repo: Path, discover: Runner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = runner.read_chunks
-
     def guarded(path: str):  # type: ignore[no-untyped-def]
         if path.endswith("SwcBeta.arxml"):
             raise PermissionError("locked by another process")
-        return real(path)
+        return fsio.read_chunks(path)
 
-    monkeypatch.setattr(runner, "read_chunks", guarded)
+    monkeypatch.setattr("porttool.discovery.runner.read_chunks", guarded)
     result = discover(repo)
     problems = result.report["inventory"]["problem_files"]
     assert [(row["problem"], row["message"]) for row in problems] == [
@@ -366,14 +361,12 @@ def test_unreadable_file_is_a_finding(
 def test_a_file_that_makes_the_scanner_fail_does_not_stop_the_inventory(
     repo: Path, discover: Runner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = runner.scan_arxml
-
     def fragile(rel: str, size: int, chunks):  # type: ignore[no-untyped-def]
         if rel.endswith("SwcBeta.arxml"):
             raise ValueError("a bug in the scanner")
-        return real(rel, size, chunks)
+        return arxml_scan.scan_arxml(rel, size, chunks)
 
-    monkeypatch.setattr(runner, "scan_arxml", fragile)
+    monkeypatch.setattr("porttool.discovery.runner.scan_arxml", fragile)
     result = discover(repo)
     assert "DISC-FILE-FAILED" in codes(result)
     assert all(step["ok"] for step in result.report["steps"])
@@ -531,14 +524,12 @@ def test_output_folder_with_foreign_files_is_refused(repo: Path, tmp_path: Path)
 def test_one_report_file_that_cannot_be_written_is_a_finding(
     repo: Path, discover: Runner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = runner.atomic_write_text
-
     def picky(path: str, text: str, *, newline: str = "\n") -> None:
         if path.endswith("discovery.md"):
             raise PermissionError("open in an editor")
-        real(path, text, newline=newline)
+        fsio.atomic_write_text(path, text, newline=newline)
 
-    monkeypatch.setattr(runner, "atomic_write_text", picky)
+    monkeypatch.setattr("porttool.discovery.runner.atomic_write_text", picky)
     result = discover(repo)
     assert not (Path(result.out_dir) / "discovery.md").exists()
     report = load_json(result.out_dir)
@@ -606,7 +597,9 @@ def test_cli_unexpected_error_writes_a_log_and_shows_no_traceback(
     assert len(logs) == 1 and "boom" in logs[0].read_text(encoding="utf-8")
 
 
-def test_cli_passes_every_option(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_passes_every_option(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from porttool.discovery import cli
 
     seen: list[DiscoveryOptions] = []
@@ -624,7 +617,12 @@ def test_cli_passes_every_option(repo: Path, tmp_path: Path, monkeypatch: pytest
     )  # fmt: skip
     assert done.exit_code == 0, done.output
     options = seen[0]
-    assert (options.dpa, options.sip, options.developer_bin, options.out) == ("p.dpa", "S", "B", "O")
+    assert (options.dpa, options.sip, options.developer_bin, options.out) == (
+        "p.dpa",
+        "S",
+        "B",
+        "O",
+    )
     assert options.anonymize and options.no_tools and options.exclude == ("a", "b")
     assert options.git_executable == "G"
 

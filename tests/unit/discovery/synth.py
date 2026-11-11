@@ -87,7 +87,8 @@ SWC_ALPHA = package(
     ),
 )
 SWC_BETA = package(
-    "ComponentTypes", swc("SwcBeta", port("R", "RpSpeed", "IfSpeed", "{DEADBEEF-0000-4000-8000-000000000001}"))
+    "ComponentTypes",
+    swc("SwcBeta", port("R", "RpSpeed", "IfSpeed", "{DEADBEEF-0000-4000-8000-000000000001}")),
 )  # noqa: E501
 SWC_MODEL = package(
     "ComponentTypes",
@@ -106,7 +107,8 @@ def interface(name: str) -> str:
         "          <DATA-ELEMENTS>\n"
         "            <VARIABLE-DATA-PROTOTYPE>\n"
         "              <SHORT-NAME>Value</SHORT-NAME>\n"
-        '              <TYPE-TREF DEST="IMPLEMENTATION-DATA-TYPE">/MyDataTypes/PlatformU16</TYPE-TREF>\n'
+        '              <TYPE-TREF DEST="IMPLEMENTATION-DATA-TYPE">/MyDataTypes/PlatformU16'
+        "</TYPE-TREF>\n"
         "            </VARIABLE-DATA-PROTOTYPE>\n"
         "          </DATA-ELEMENTS>\n"
         "        </SENDER-RECEIVER-INTERFACE>\n",
@@ -266,9 +268,7 @@ DCF_FILES: tuple[tuple[str, str], ...] = (
 
 
 def dcf_text(files: tuple[tuple[str, str], ...] = DCF_FILES) -> str:
-    refs = "".join(
-        f'    <ARXML ROOTITEM="{kind}" TYPE="">{path}</ARXML>\n' for kind, path in files
-    )
+    refs = "".join(f'    <ARXML ROOTITEM="{kind}" TYPE="">{path}</ARXML>\n' for kind, path in files)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n<DCF ARXMLVERSION="4.2.2">\n'
         "  <NAME>EcuProj</NAME>\n"
@@ -365,10 +365,7 @@ FAKE_NONZERO = (
     "sys.stderr.write('Unknown option. Usage: tool /? \\nOptions:\\n  /p project\\n')\n"
     "sys.exit(3)\n"
 )
-FAKE_BINARY = (
-    "import sys\n"
-    "sys.stdout.buffer.write(b'Usage \\xff\\xfa caf\\xe9\\n--help\\n-x\\n')\n"
-)
+FAKE_BINARY = "import sys\nsys.stdout.buffer.write(b'Usage \\xff\\xfa caf\\xe9\\n--help\\n-x\\n')\n"
 FAKE_HANG = (
     "import os, subprocess, sys, time\n"
     "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
