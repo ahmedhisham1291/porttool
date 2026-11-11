@@ -31,8 +31,13 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import porttool
 from porttool.core.config import ProjectConfig
-from porttool.core.errors import ConfigError, JobCancelled, PortToolError, RepoStateError
-from porttool.core.errors import WorkbookError
+from porttool.core.errors import (
+    ConfigError,
+    JobCancelled,
+    PortToolError,
+    RepoStateError,
+    WorkbookError,
+)
 from porttool.core.interfaces import AppService, JobView, ValidationOutcome
 from porttool.core.log import current_log_file
 from porttool.core.models import Model
@@ -65,6 +70,7 @@ _logger = logging.getLogger(__name__)
 
 TOKEN_HEADER = "X-PortTool-Token"
 _JSON_BODY_LIMIT = 8 * 1024 * 1024
+_DRAIN_LIMIT = 1024 * 1024 * 1024  # an oversized body up to this size is read and dropped
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _STATIC_NAME = re.compile(r"[A-Za-z0-9_-]+\.(?:html|css|js)")
 #: Fixed types: the Windows registry can map .js to text/plain, which the browser refuses.
@@ -292,6 +298,7 @@ class GuiApp:
         self._upload_dir: Path | None = None
         self._pending_table: tuple[PendingQueue | None, TableData] | None = None
         self._accepted: tuple[ValidationOutcome, int] | None = None
+        self._applied: ValidationOutcome | None = None  # the dry run an apply was started for
         self._flags = _Flags(None, False, False)
         self._flag_error = ""
         self._wake = threading.Event()
@@ -436,7 +443,12 @@ class GuiApp:
         return count
 
     def _apply_blockers(
-        self, model: Model | None, accepted: int, stale: bool, recovery: bool, has_run: bool
+        self,
+        model: Model | None,
+        accepted: int,
+        stale: bool,
+        recovery: bool,
+        outcome: ValidationOutcome | None,
     ) -> list[str]:
         blockers: list[str] = []
         if model is None:
@@ -445,10 +457,12 @@ class GuiApp:
             blockers.append("An earlier apply did not finish: roll back first.")
         if stale:
             blockers.append("Files changed on disk: reload, then validate again.")
-        if not has_run:
+        if outcome is None:
             blockers.append("Validate requests first.")
         elif accepted == 0:
             blockers.append("The last validation accepted no request.")
+        elif outcome is self._applied:
+            blockers.append("These requests were already sent to apply: validate again.")
         return blockers
 
     # ---- GET state
@@ -460,7 +474,7 @@ class GuiApp:
         stale, recovery = self._current_flags(model)
         outcome = service.last_validation()
         accepted = self._accepted_count(outcome)
-        blockers = self._apply_blockers(model, accepted, stale, recovery, outcome is not None)
+        blockers = self._apply_blockers(model, accepted, stale, recovery, outcome)
         tables_status = "no-model"
         model_json: dict[str, object] | None = None
         if model is not None:
@@ -511,6 +525,8 @@ class GuiApp:
                 else None
             ),
             "log_file": str(log_file) if log_file is not None else None,
+            "max_upload_mb": self.settings().max_upload_mb,
+            "max_upload_files": self.settings().max_upload_files,
         }
 
     # ---- POST actions
@@ -542,7 +558,9 @@ class GuiApp:
             raise _bad_request("Enter the path of the workbook to write.")
         target = Path(text)
         if not target.is_absolute():
-            raise _bad_request("The workbook path must be a full path, for example C:\\work\\x.xlsx.")
+            raise _bad_request(
+                "The workbook path must be a full path, for example C:\\work\\requests.xlsx."
+            )
         if target.suffix.lower() != ".xlsx":
             raise _bad_request("The workbook path must end with .xlsx.")
         if not target.parent.is_dir():
@@ -612,11 +630,12 @@ class GuiApp:
         stale, recovery = self._current_flags(model)
         outcome = self._service.last_validation()
         accepted = self._accepted_count(outcome)
-        blockers = self._apply_blockers(model, accepted, stale, recovery, outcome is not None)
+        blockers = self._apply_blockers(model, accepted, stale, recovery, outcome)
         if blockers:
             code = "recovery-needed" if recovery else "stale" if stale else "nothing-to-apply"
             raise ApiError(409, code, " ".join(blockers))
         result = self._start(self._service.start_apply)
+        self._applied = outcome
         result["accepted"] = accepted
         return result
 
@@ -902,6 +921,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _app(self) -> GuiApp:
         return cast(_HttpServer, self.server).app
 
+    @property
+    def _app_port(self) -> int:
+        return cast(_HttpServer, self.server).server_port
+
     def do_GET(self) -> None:  # noqa: N802 - name fixed by http.server
         self._dispatch("GET")
 
@@ -948,10 +971,18 @@ class _Handler(BaseHTTPRequestHandler):
         if length < 0:
             raise ApiError(400, "bad-request", "The Content-Length of the request is not valid.")
         if length > limit:
+            # Read and drop a moderately oversized body so the browser receives the answer
+            # instead of a broken connection. Anything larger ends the connection.
+            if length <= min(8 * limit, _DRAIN_LIMIT):
+                remaining = length
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 64 * 1024))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                self._body_read = remaining == 0
             megabytes = max(1, limit // (1024 * 1024))
-            raise ApiError(
-                413, "too-large", f"The request is too large (limit {megabytes} MB)."
-            )
+            raise ApiError(413, "too-large", f"The request is too large (limit {megabytes} MB).")
         body = self.rfile.read(length) if length else b""
         if len(body) != length:
             raise ApiError(400, "bad-request", "The request body is incomplete.")
@@ -959,7 +990,7 @@ class _Handler(BaseHTTPRequestHandler):
         return body
 
     def _host_ok(self) -> bool:
-        port = self.server.server_address[1]
+        port = self._app_port
         host = (self.headers.get("Host") or "").strip().lower()
         return host in (f"127.0.0.1:{port}", f"localhost:{port}")
 
@@ -967,7 +998,7 @@ class _Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin is None:
             return True
-        port = self.server.server_address[1]
+        port = self._app_port
         return origin.strip().lower() in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
 
     def _handle(self, method: str) -> None:
@@ -1048,7 +1079,12 @@ class ServerHandle:
     """A running web interface. ``close()`` stops it and removes its temporary folder."""
 
     def __init__(
-        self, httpd: _HttpServer, app: GuiApp, token: str, tmp_dir: Path, threads: list[threading.Thread]
+        self,
+        httpd: _HttpServer,
+        app: GuiApp,
+        token: str,
+        tmp_dir: Path,
+        threads: list[threading.Thread],
     ) -> None:
         self._httpd = httpd
         self._app = app

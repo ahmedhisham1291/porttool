@@ -665,7 +665,7 @@ def build_pending_table(queue: PendingQueue | None) -> TableData:
             {
                 "state": entry.state.value,
                 "operation": str(data.get("op", "")),
-                "object": f"{container}/{name}".strip("/") if name else str(container),
+                "object": f"{container}/{name}" if name else str(container),
                 "requester": str(data.get("requester", "")),
                 "created_utc": entry.created_utc,
                 "owner_team": entry.owner_team or "",
@@ -689,9 +689,7 @@ def build_tables(
         "connections": _table("connections", _connection_rows(model, labels)),
         "unconnected": _table("unconnected", _unconnected_rows(model, labels, partner_limit)),
         "interfaces": _table("interfaces", _interface_rows(model, labels)),
-        "interface_elements": _table(
-            "interface_elements", _interface_element_rows(model, labels)
-        ),
+        "interface_elements": _table("interface_elements", _interface_element_rows(model, labels)),
         "data_types": _table("data_types", _data_type_rows(model, labels)),
     }
 

@@ -156,9 +156,7 @@ def rows_from_json(payload: object, max_rows: int) -> list[RawRequestRow]:
         keys = [column.key for column in COLUMNS[sheet]]
         unknown = sorted(str(key) for key in given if key not in keys)
         if unknown:
-            raise _bad(
-                f"Request {number}: sheet {sheet.value} has no column '{unknown[0][:60]}'."
-            )
+            raise _bad(f"Request {number}: sheet {sheet.value} has no column '{unknown[0][:60]}'.")
         values = {key: "" for key in keys}
         for key, value in given.items():
             if value is None:
