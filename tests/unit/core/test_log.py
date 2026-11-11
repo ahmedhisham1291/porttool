@@ -89,6 +89,21 @@ def test_console_handler_for_cli_use(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "quiet on the console" in log_file.read_text(encoding="utf-8")
 
 
+def test_console_shows_no_traceback_but_the_log_file_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_file = log.setup_logging(tmp_path, console=True)
+    try:
+        raise ValueError("inner detail")
+    except ValueError:
+        logging.getLogger("porttool.cli").exception("the command failed")
+    _flush()
+    err = capsys.readouterr().err
+    assert err.strip() == "ERROR: the command failed"
+    text = log_file.read_text(encoding="utf-8")
+    assert "Traceback" in text and "ValueError: inner detail" in text
+
+
 def test_verbose_console_shows_debug(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     log.setup_logging(tmp_path, console=True, console_level=logging.DEBUG)
     logging.getLogger("porttool.cli").debug("detail")

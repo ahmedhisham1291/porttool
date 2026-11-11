@@ -36,6 +36,18 @@ _logger = logging.getLogger(__name__)
 _log_file: Path | None = None
 
 
+class _ConsoleFormatter(logging.Formatter):
+    """Short console lines: the message only. Tracebacks belong in the log file."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        saved = (record.exc_info, record.exc_text, record.stack_info)
+        record.exc_info = record.exc_text = record.stack_info = None
+        try:
+            return super().format(record)
+        finally:
+            record.exc_info, record.exc_text, record.stack_info = saved
+
+
 def default_log_dir() -> Path:
     r"""Return ``%LOCALAPPDATA%\PortTool\logs``."""
     return local_app_dir() / "logs"
@@ -80,7 +92,7 @@ def setup_logging(
     if console:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(console_level)
-        console_handler.setFormatter(logging.Formatter(_CONSOLE_FORMAT))
+        console_handler.setFormatter(_ConsoleFormatter(_CONSOLE_FORMAT))
         handlers.append(console_handler)
     logger = logging.getLogger(ROOT_LOGGER)
     for handler in handlers:
