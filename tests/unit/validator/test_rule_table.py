@@ -22,7 +22,9 @@ def test_rule(case: Case) -> None:
     found = codes_of(outcome)
     assert statuses(outcome) == case.expect, sorted(found)
     for code in case.fail:
-        assert code in found, f"{code} ({CODES[code].description}) was not reported: {sorted(found)}"
+        assert code in found, (
+            f"{code} ({CODES[code].description}) was not reported: {sorted(found)}"
+        )
     for code in case.ok:
         assert code not in found, f"{code} ({CODES[code].description}) was reported"
 

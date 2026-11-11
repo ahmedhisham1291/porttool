@@ -26,11 +26,11 @@ from porttool.core.results import RawRequestRow, RequestStatus
 from porttool.validator import codes as c
 from tests.helpers.sample_model import COMPOSITION, CT, IF
 from tests.unit.validator.support import (
-    A,
     BETA,
+    LOCKED_COMPOSITION,
+    A,
     D,
     H,
-    LOCKED_COMPOSITION,
     R,
     W,
     access_rid,
@@ -48,6 +48,8 @@ from tests.unit.validator.support import (
     type_row,
     waiting_entry,
 )
+
+_CREATED = "2026-11-01T08:00:00Z"
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,11 @@ def case(
 
 
 def _pend_port(
-    swc: str, name: str, direction: str = "P", interface: str = "IfTorque", **more: object
+    swc: str,
+    name: str,
+    direction: str = "P",
+    interface: str = "IfTorque",
+    created: str = _CREATED,
 ) -> PendingEntry:
     op = AddPort(
         id=f"Ports:add_port:{CT}/{swc}/{name}",
@@ -86,13 +92,19 @@ def _pend_port(
         name=name,
         direction=PortDirection(direction),
         interface_path=f"{IF}/{interface}",
-        init_values=(InitValueSpec(element="Torque", value=None),) if interface == "IfTorque" else (),
+        init_values=(InitValueSpec(element="Torque", value=None),)
+        if interface == "IfTorque"
+        else (),
     )
-    return waiting_entry(op, owner_team="Gamma", **more)
+    return waiting_entry(op, created, owner_team="Gamma")
 
 
 def _pend_connector(
-    provider: str, provider_port: str, requester: str, requester_port: str, **more: object
+    provider: str,
+    provider_port: str,
+    requester: str,
+    requester_port: str,
+    created: str = _CREATED,
 ) -> PendingEntry:
     op = AddConnector(
         id=(
@@ -108,15 +120,14 @@ def _pend_connector(
         requester_prototype=requester,
         requester_port=requester_port,
     )
-    return waiting_entry(op, **more)
+    return waiting_entry(op, created)
 
 
-def _pend(op: AnyOperation, **more: object) -> PendingEntry:
-    return waiting_entry(op, **more)
+def _pend(op: AnyOperation, created: str = _CREATED) -> PendingEntry:
+    return waiting_entry(op, created)
 
 
 _M = f"{CT}/SwcM"
-_BASE = {"route": Route.MODEL, "requester": "bob"}
 
 ROW = [
     case("row: unknown sheet", [raw_row("Components", name="SwcA")], [R], (c.ROW_UNKNOWN_SHEET,)),
@@ -156,7 +167,10 @@ ROW = [
     ),
     case(
         "row: MODIFY and DELETE on new rows",
-        [port_row("SwcA", "RpTorque", action="MODIFY"), port_row("SwcA", "RpTorque", action="DELETE")],
+        [
+            port_row("SwcA", "RpTorque", action="MODIFY"),
+            port_row("SwcA", "RpTorque", action="DELETE"),
+        ],
         [R, R],
         (c.ROW_CHANGE_WITHOUT_ROWID,),
     ),
@@ -193,7 +207,15 @@ ROW = [
             type_row("uint8", action="DELETE", rid="DT-000000000000"),
             interface_row("IfSpeed", action="MODIFY", rid="IF-000000000000"),
             element_row("IfSpeed", "Speed", action="DELETE", rid="IE-000000000000"),
-            access_row("SwcA", "RunA_10ms", "PpSpeed", "Speed", "implicit write", action="MODIFY", rid="RA-0"),
+            access_row(
+                "SwcA",
+                "RunA_10ms",
+                "PpSpeed",
+                "Speed",
+                "implicit write",
+                action="MODIFY",
+                rid="RA-0",
+            ),
             trigger_row("SwcA", "RunA_10ms", "periodic", action="MODIFY", rid="RT-0"),
             connection_row("SwcA", "PpSpeed", "SwcB", "RpSpeed", action="MODIFY", rid="CN-0"),
         ],
@@ -208,7 +230,16 @@ ROW = [
     ),
     case(
         "row: MODIFY that changes the direction",
-        [port_row("SwcA", "RpTorque", "P", "IfTorque", action="MODIFY", rid=port_rid("SwcA", "RpTorque"))],
+        [
+            port_row(
+                "SwcA",
+                "RpTorque",
+                "P",
+                "IfTorque",
+                action="MODIFY",
+                rid=port_rid("SwcA", "RpTorque"),
+            )
+        ],
         [R],
         (c.ROW_IDENTITY_CHANGED,),
     ),
@@ -290,7 +321,12 @@ NAME = [
         ],
         [R] * 5,
         (c.NAME_PATTERN,),
-        naming=naming(port="(Pp|Rp)[A-Z]\\w*", interface="If[A-Z]\\w*", data_type="[A-Z]\\w*", connector="Asc_\\w+"),
+        naming=naming(
+            port="(Pp|Rp)[A-Z]\\w*",
+            interface="If[A-Z]\\w*",
+            data_type="[A-Z]\\w*",
+            connector="Asc_\\w+",
+        ),
     ),
     case(
         "name: project pattern kept",
@@ -303,7 +339,12 @@ NAME = [
         ],
         [A] * 5,
         ok=(c.NAME_PATTERN,),
-        naming=naming(port="(Pp|Rp)[A-Z]\\w*", interface="If[A-Z]\\w*", data_type="[A-Z]\\w*", connector="Asc_\\w+"),
+        naming=naming(
+            port="(Pp|Rp)[A-Z]\\w*",
+            interface="If[A-Z]\\w*",
+            data_type="[A-Z]\\w*",
+            connector="Asc_\\w+",
+        ),
     ),
     case(
         "name: generated server runnable breaks the runnable pattern",
@@ -313,7 +354,9 @@ NAME = [
         naming=naming(runnable="Run\\w+"),
     ),
     case("name: C keyword", [port_row("SwcA", "switch")], [R], (c.NAME_C_KEYWORD,)),
-    case("name: keyword in another case", [port_row("SwcA", "Switch")], [A], ok=(c.NAME_C_KEYWORD,)),
+    case(
+        "name: keyword in another case", [port_row("SwcA", "Switch")], [A], ok=(c.NAME_C_KEYWORD,)
+    ),
     case(
         "name: port exists with another interface",
         [port_row("SwcA", "PpSpeed", "R", "IfTorque")],
@@ -541,7 +584,9 @@ OWN = [
         (c.OWN_LOCKED,),
     ),
     case("own: service SWC", [port_row("SwcSrv", "RpNew")], [R], (c.OWN_SERVICE,)),
-    case("own: composition as SWC", [port_row("EcuComposition", "RpNew")], [R], (c.OWN_COMPOSITION,)),
+    case(
+        "own: composition as SWC", [port_row("EcuComposition", "RpNew")], [R], (c.OWN_COMPOSITION,)
+    ),
     case(
         "own: connectors of a locked composition",
         [
@@ -565,7 +610,15 @@ OWN = [
             port_row("SwcM", "PpNew", "P", "IfTorque"),
             access_row("SwcM", "RunM", "RpSpeedM", "Speed", "implicit read"),
             trigger_row("SwcM", "RunM", "on data reception", "RpSpeedM", "Speed"),
-            port_row("SwcM", "PpTorque", "P", "IfTorque", "3", action="MODIFY", rid=port_rid("SwcM", "PpTorque")),
+            port_row(
+                "SwcM",
+                "PpTorque",
+                "P",
+                "IfTorque",
+                "3",
+                action="MODIFY",
+                rid=port_rid("SwcM", "PpTorque"),
+            ),
         ],
         [W, W, W, W],
         ok=(c.OWN_LOCKED, c.OWN_SERVICE, c.OWN_COMPOSITION, c.CFL_PENDING, c.PEND_ALREADY_QUEUED),
@@ -606,7 +659,9 @@ DATA_TYPES = [
             c.DT_SCALING,
         ),
     ),
-    case("dt: unknown level", [type_row("T", level="system", base_type="uint8")], [R], (c.DT_LEVEL,)),
+    case(
+        "dt: unknown level", [type_row("T", level="system", base_type="uint8")], [R], (c.DT_LEVEL,)
+    ),
     case(
         "dt: category outside v1",
         [type_row("T1", "string"), type_row("T2", "blob"), type_row("T3", "type-reference")],
@@ -727,7 +782,10 @@ DATA_TYPES = [
     ),
     case(
         "dt: unknown and ambiguous unit",
-        [type_row("T1", base_type="uint8", unit="Furlong"), type_row("T2", base_type="uint8", unit="Dupunit")],
+        [
+            type_row("T1", base_type="uint8", unit="Furlong"),
+            type_row("T2", base_type="uint8", unit="Dupunit"),
+        ],
         [R, R],
         (c.DT_UNIT,),
     ),
@@ -747,10 +805,19 @@ DATA_TYPES = [
         "dt: types the repo already has",
         [
             type_row("uint8", base_type="uint8"),
-            type_row("EngineState", "enumeration", base_type="uint8", enum_values="0=OFF;1=RUN;2=FAULT"),
+            type_row(
+                "EngineState", "enumeration", base_type="uint8", enum_values="0=OFF;1=RUN;2=FAULT"
+            ),
             type_row("SpeedArray", "array", element_type="uint16", array_size="4"),
             type_row("SpeedRec", "record", record_elements="a:uint16;b:uint8"),
-            type_row("Percent", level="application", lower_limit="0", upper_limit="100", factor="0.5", unit="Pct"),
+            type_row(
+                "Percent",
+                level="application",
+                lower_limit="0",
+                upper_limit="100",
+                factor="0.5",
+                unit="Pct",
+            ),
         ],
         [D, D, D, D, D],
         ok=(c.NAME_DUPLICATE,),
@@ -862,13 +929,21 @@ INTERFACES = [
     ),
     case(
         "if: same element twice with different types",
-        [interface_row("IfNew"), element_row("IfNew", "V", "uint8"), element_row("IfNew", "V", "uint16")],
+        [
+            interface_row("IfNew"),
+            element_row("IfNew", "V", "uint8"),
+            element_row("IfNew", "V", "uint16"),
+        ],
         [R, R, R],
         (c.IF_ELEMENT_DUPLICATE, c.IF_GROUP_REJECTED),
     ),
     case(
         "if: same element twice, identical",
-        [interface_row("IfNew"), element_row("IfNew", "V", "uint8"), element_row("IfNew", "V", "uint8")],
+        [
+            interface_row("IfNew"),
+            element_row("IfNew", "V", "uint8"),
+            element_row("IfNew", "V", "uint8"),
+        ],
         [A, A, A],
         (c.CFL_MERGED,),
         ok=(c.IF_ELEMENT_DUPLICATE,),
@@ -905,7 +980,10 @@ INTERFACES = [
     ),
     case(
         "if: argument cells without an argument name",
-        [interface_row("IfSrv", "client-server"), element_row("IfSrv", "Read", "uint8", direction="IN")],
+        [
+            interface_row("IfSrv", "client-server"),
+            element_row("IfSrv", "Read", "uint8", direction="IN"),
+        ],
         [R, R],
         (c.ROW_BLANK_CELL,),
     ),
@@ -967,7 +1045,10 @@ PORTS = [
     case("port: bad direction", [port_row("SwcA", "RpNew", "X")], [R], (c.PORT_DIRECTION,)),
     case(
         "port: PR on a client-server or mode interface",
-        [port_row("SwcA", "PrDiag", "PR", "IfDiag", ""), port_row("SwcA", "PrMode", "PR", "IfMode", "")],
+        [
+            port_row("SwcA", "PrDiag", "PR", "IfDiag", ""),
+            port_row("SwcA", "PrMode", "PR", "IfMode", ""),
+        ],
         [R, R],
         (c.PORT_PR_KIND,),
     ),
@@ -1077,7 +1158,10 @@ PORTS = [
     ),
     case(
         "port: init value of an array type",
-        [port_row("SwcA", "Rp1", "R", "IfArr", "{1,2,3,4}"), port_row("SwcA", "Rp2", "R", "IfArr", "none")],
+        [
+            port_row("SwcA", "Rp1", "R", "IfArr", "{1,2,3,4}"),
+            port_row("SwcA", "Rp2", "R", "IfArr", "none"),
+        ],
         [R, A],
         (c.PORT_INIT_COMPOSITE,),
     ),
@@ -1123,7 +1207,17 @@ PORTS = [
     ),
     case(
         "port: MODIFY to an interface that breaks the use",
-        [port_row("SwcA", "PpSpeed", "P", "IfTorque", "0", action="MODIFY", rid=port_rid("SwcA", "PpSpeed"))],
+        [
+            port_row(
+                "SwcA",
+                "PpSpeed",
+                "P",
+                "IfTorque",
+                "0",
+                action="MODIFY",
+                rid=port_rid("SwcA", "PpSpeed"),
+            )
+        ],
         [R],
         (c.PORT_MODIFY_BREAKS,),
     ),
@@ -1146,8 +1240,24 @@ PORTS = [
     case(
         "port: MODIFY of the init value only, and without any change",
         [
-            port_row("SwcA", "RpTorque", "R", "IfTorque", "5", action="MODIFY", rid=port_rid("SwcA", "RpTorque")),
-            port_row("SwcB", "RpSpeed", "R", "IfSpeed", "0", action="MODIFY", rid=port_rid("SwcB", "RpSpeed")),
+            port_row(
+                "SwcA",
+                "RpTorque",
+                "R",
+                "IfTorque",
+                "5",
+                action="MODIFY",
+                rid=port_rid("SwcA", "RpTorque"),
+            ),
+            port_row(
+                "SwcB",
+                "RpSpeed",
+                "R",
+                "IfSpeed",
+                "0",
+                action="MODIFY",
+                rid=port_rid("SwcB", "RpSpeed"),
+            ),
         ],
         [A, D],
     ),
@@ -1159,7 +1269,10 @@ PORTS = [
     ),
     case(
         "port: exists as requested",
-        [port_row("SwcA", "PpSpeed", "P", "IfSpeed", "0"), port_row("SwcA", "RpDiag", "R", "IfDiag", "")],
+        [
+            port_row("SwcA", "PpSpeed", "P", "IfSpeed", "0"),
+            port_row("SwcA", "RpDiag", "R", "IfDiag", ""),
+        ],
         [D, D],
         ok=(c.PORT_INIT_DIFFERS, c.NAME_DUPLICATE),
     ),
@@ -1189,11 +1302,19 @@ CONNECTORS = [
     ),
     case(
         "con: provider and requester swapped",
-        [connection_row("SwcB", "RpSpeed", "SwcA", "PpSpeed"), connection_row("SwcD", "PpSpeedD", "SwcC", "PpSpeedC")],
+        [
+            connection_row("SwcB", "RpSpeed", "SwcA", "PpSpeed"),
+            connection_row("SwcD", "PpSpeedD", "SwcC", "PpSpeedC"),
+        ],
         [R, R],
         (c.CON_SIDE,),
     ),
-    case("con: port to itself", [connection_row("SwcC", "PrSpeed", "SwcC", "PrSpeed")], [R], (c.CON_SELF,)),
+    case(
+        "con: port to itself",
+        [connection_row("SwcC", "PrSpeed", "SwcC", "PrSpeed")],
+        [R],
+        (c.CON_SELF,),
+    ),
     case(
         "con: incompatible interfaces",
         [
@@ -1249,13 +1370,19 @@ CONNECTORS = [
     ),
     case(
         "mul: n:m built by two rows of one import",
-        [connection_row("SwcD", "PpSpeedD", "SwcB", "RpSpeed"), connection_row("SwcD", "PpSpeedD", "SwcC", "RpFree")],
+        [
+            connection_row("SwcD", "PpSpeedD", "SwcB", "RpSpeed"),
+            connection_row("SwcD", "PpSpeedD", "SwcC", "RpFree"),
+        ],
         [A, R],
         (c.MUL_N_TO_M, c.MUL_N_TO_ONE),
     ),
     case(
         "mul: 1:n sender-receiver",
-        [connection_row("SwcA", "PpSpeed", "SwcC", "RpFree"), connection_row("SwcA", "PpSpeed", "SwcM", "RpSpeedM")],
+        [
+            connection_row("SwcA", "PpSpeed", "SwcC", "RpFree"),
+            connection_row("SwcA", "PpSpeed", "SwcM", "RpSpeedM"),
+        ],
         [A, A],
         ok=(c.MUL_N_TO_M, c.MUL_N_TO_ONE),
     ),
@@ -1274,7 +1401,10 @@ CONNECTORS = [
     ),
     case(
         "mul: server with many clients",
-        [connection_row("SwcB", "PpDiag", "SwcC", "RpDiagC"), connection_row("SwcB", "PpDiag", "SwcD", "RpDiagD")],
+        [
+            connection_row("SwcB", "PpDiag", "SwcC", "RpDiagC"),
+            connection_row("SwcB", "PpDiag", "SwcD", "RpDiagD"),
+        ],
         [A, A],
         ok=(c.MUL_CLIENT,),
     ),
@@ -1295,7 +1425,12 @@ CONNECTORS = [
         [
             connection_row("SwcC", "PpDiagC", "SwcA", "RpDiag"),
             connection_row(
-                "SwcB", "PpDiag", "SwcA", "RpDiag", action="DELETE", rid=connector_rid("SwcB_PpDiag_SwcA_RpDiag")
+                "SwcB",
+                "PpDiag",
+                "SwcA",
+                "RpDiag",
+                action="DELETE",
+                rid=connector_rid("SwcB_PpDiag_SwcA_RpDiag"),
             ),
         ],
         [A, A],
@@ -1443,7 +1578,9 @@ TRIGGERS = [
         "trg: cells that do not belong to the kind",
         [
             trigger_row("SwcA", "RunA_10ms", "periodic", "RpTorque", "Torque", period_ms="5"),
-            trigger_row("SwcA", "RunA_10ms", "on data reception", "RpTorque", "Torque", period_ms="5"),
+            trigger_row(
+                "SwcA", "RunA_10ms", "on data reception", "RpTorque", "Torque", period_ms="5"
+            ),
             trigger_row("SwcA", "RunA_10ms", "init", "RpTorque"),
             trigger_row("SwcA", "RunA_10ms", "background", period_ms="5"),
         ],
@@ -1544,7 +1681,12 @@ TRIGGERS = [
             ),
             trigger_row("SwcB", "RunB_OnSpeed", "on operation invocation", "PpDiag", "ReadDtc"),
             trigger_row(
-                "SwcA", "RunA_10ms", "periodic", period_ms="10", action="DELETE", rid=trigger_rid("SwcA", "TMT_RunA_10ms")
+                "SwcA",
+                "RunA_10ms",
+                "periodic",
+                period_ms="10",
+                action="DELETE",
+                rid=trigger_rid("SwcA", "TMT_RunA_10ms"),
             ),
         ],
         [A, A, A],
@@ -1560,7 +1702,9 @@ TRIGGERS = [
         "trg: exists as requested",
         [
             trigger_row("SwcA", "RunA_10ms", "periodic", period_ms="10"),
-            trigger_row("SwcB", "RunB_OnSpeed", "on data reception", "RpSpeed", "Speed", task="Task_Event"),
+            trigger_row(
+                "SwcB", "RunB_OnSpeed", "on data reception", "RpSpeed", "Speed", task="Task_Event"
+            ),
         ],
         [D, D],
         ok=(c.TRG_TASK_DIFFERS,),
@@ -1570,7 +1714,12 @@ TRIGGERS = [
         [
             trigger_row("SwcA", "RunA_10ms", "periodic", period_ms="10"),
             trigger_row(
-                "SwcA", "RunA_10ms", "periodic", period_ms="10", action="DELETE", rid=trigger_rid("SwcA", "TMT_RunA_10ms")
+                "SwcA",
+                "RunA_10ms",
+                "periodic",
+                period_ms="10",
+                action="DELETE",
+                rid=trigger_rid("SwcA", "TMT_RunA_10ms"),
             ),
         ],
         [R, R],
@@ -1581,7 +1730,9 @@ TRIGGERS = [
         [
             port_row("SwcA", "PpDiagNew", "P", "IfDiag", ""),
             trigger_row("SwcA", "RunOne", "on operation invocation", "PpDiagNew", "ReadDtc"),
-            trigger_row("SwcA", "RunTwo", "on operation invocation", "PpDiagNew", "ReadDtc", file=BETA),
+            trigger_row(
+                "SwcA", "RunTwo", "on operation invocation", "PpDiagNew", "ReadDtc", file=BETA
+            ),
         ],
         [R, R, R],
         (c.CFL_DIFFERENT, c.REF_REJECTED_DEPENDENCY),
@@ -1633,7 +1784,9 @@ CONFLICTS = [
             type_row("NewT", base_type="uint8"),
             type_row("NewT", base_type="sint8", file=BETA),
             trigger_row("SwcA", "RunA_10ms", "periodic", period_ms="20", task="Task_Init"),
-            trigger_row("SwcA", "RunA_10ms", "periodic", period_ms="20", task="Task_Event", file=BETA),
+            trigger_row(
+                "SwcA", "RunA_10ms", "periodic", period_ms="20", task="Task_Event", file=BETA
+            ),
         ],
         [R] * 6,
         (c.CFL_DIFFERENT,),
@@ -1652,9 +1805,16 @@ CONFLICTS = [
         [
             connection_row("SwcA", "PpSpeed", "SwcB", "RpSpeed"),
             connection_row(
-                "SwcA", "PpSpeed", "SwcB", "RpSpeed", action="DELETE", rid=connector_rid("SwcA_PpSpeed_SwcB_RpSpeed")
+                "SwcA",
+                "PpSpeed",
+                "SwcB",
+                "RpSpeed",
+                action="DELETE",
+                rid=connector_rid("SwcA_PpSpeed_SwcB_RpSpeed"),
             ),
-            port_row("SwcD", "PpUnused", "P", init="4", action="MODIFY", rid=port_rid("SwcD", "PpUnused")),
+            port_row(
+                "SwcD", "PpUnused", "P", init="4", action="MODIFY", rid=port_rid("SwcD", "PpUnused")
+            ),
             port_row("SwcD", "PpUnused", "P", action="DELETE", rid=port_rid("SwcD", "PpUnused")),
             access_row("SwcC", "RunC", "RpMulti", "A", "implicit read"),
             access_row(
@@ -1684,7 +1844,14 @@ CONFLICTS = [
         "cfl: the same delete in two workbooks",
         [
             port_row("SwcD", "PpUnused", "P", action="DELETE", rid=port_rid("SwcD", "PpUnused")),
-            port_row("SwcD", "PpUnused", "P", action="DELETE", rid=port_rid("SwcD", "PpUnused"), file=BETA),
+            port_row(
+                "SwcD",
+                "PpUnused",
+                "P",
+                action="DELETE",
+                rid=port_rid("SwcD", "PpUnused"),
+                file=BETA,
+            ),
         ],
         [A, A],
         (c.CFL_MERGED,),
@@ -1692,9 +1859,24 @@ CONFLICTS = [
     case(
         "cfl: two different MODIFY rows for one port",
         [
-            port_row("SwcA", "RpTorque", "R", "IfTorque", "5", action="MODIFY", rid=port_rid("SwcA", "RpTorque")),
             port_row(
-                "SwcA", "RpTorque", "R", "IfTorque", "6", action="MODIFY", rid=port_rid("SwcA", "RpTorque"), file=BETA
+                "SwcA",
+                "RpTorque",
+                "R",
+                "IfTorque",
+                "5",
+                action="MODIFY",
+                rid=port_rid("SwcA", "RpTorque"),
+            ),
+            port_row(
+                "SwcA",
+                "RpTorque",
+                "R",
+                "IfTorque",
+                "6",
+                action="MODIFY",
+                rid=port_rid("SwcA", "RpTorque"),
+                file=BETA,
             ),
         ],
         [R, R],
@@ -1729,10 +1911,18 @@ PENDING = [
         ok=(c.PEND_MISMATCH, c.PEND_STALE, c.PEND_ORPHAN),
         pending=(
             _pend_port("SwcM", "PpTorque"),
-            _pend(DeletePort(id="d1", swc_path=_M, name="RpGone", **_BASE)),
+            _pend(
+                DeletePort(id="d1", swc_path=_M, name="RpGone", route=Route.MODEL, requester="bob")
+            ),
             _pend(
                 AddTrigger(
-                    id="t1", swc_path=_M, runnable_name="RunM", kind=TriggerKind.PERIODIC, period_s=0.01, **_BASE
+                    id="t1",
+                    swc_path=_M,
+                    runnable_name="RunM",
+                    kind=TriggerKind.PERIODIC,
+                    period_s=0.01,
+                    route=Route.MODEL,
+                    requester="bob",
                 )
             ),
             _pend_connector("SwcA", "PpSpeed", "SwcB", "RpSpeed"),
@@ -1754,13 +1944,21 @@ PENDING = [
                     port_name="RpSpeedM",
                     target="Speed",
                     kind=AccessKind.IMPLICIT_READ,
-                    **_BASE,
+                    route=Route.MODEL,
+                    requester="bob",
                 ),
                 created="2026-11-10T08:00:00Z",
             ),
             _pend(
                 AddServerRunnable(
-                    id="s1", swc_path=_M, name="PpX_Op", symbol="PpX_Op", port_name="PpX", operation="Op", **_BASE
+                    id="s1",
+                    swc_path=_M,
+                    name="PpX_Op",
+                    symbol="PpX_Op",
+                    port_name="PpX",
+                    operation="Op",
+                    route=Route.MODEL,
+                    requester="bob",
                 ),
                 created="2026-11-10T08:00:00Z",
             ),
@@ -1786,14 +1984,20 @@ PENDING = [
         [],
         [],
         (c.PEND_STALE,),
-        pending=(_pend_port("SwcM", "PpNew", created=_OLD), _pend_port("SwcM", "PpNew2", created="last week")),
+        pending=(
+            _pend_port("SwcM", "PpNew", created=_OLD),
+            _pend_port("SwcM", "PpNew2", created="last week"),
+        ),
     ),
     case(
         "pend: held connector that is no longer valid",
         [],
         [],
         (c.PEND_RELEASE_FAILED,),
-        pending=(_pend_connector("SwcC", "PpSpeed8", "SwcC", "RpFree"), _pend_connector("SwcC", "PpDiagC", "SwcA", "RpDiag")),
+        pending=(
+            _pend_connector("SwcC", "PpSpeed8", "SwcC", "RpFree"),
+            _pend_connector("SwcC", "PpDiagC", "SwcA", "RpDiag"),
+        ),
     ),
     case(
         "pend: entries whose target is gone",
@@ -1851,7 +2055,10 @@ CONFIG = [
 ROUTING = [
     case(
         "route: connector to a port requested on a model-owned SWC",
-        [port_row("SwcM", "PpNew", "P", "IfTorque"), connection_row("SwcM", "PpNew", "SwcA", "RpTorque")],
+        [
+            port_row("SwcM", "PpNew", "P", "IfTorque"),
+            connection_row("SwcM", "PpNew", "SwcA", "RpTorque"),
+        ],
         [W, H],
     ),
     case(
@@ -1881,7 +2088,10 @@ ROUTING = [
     ),
     case(
         "route: connector to a rejected port request",
-        [port_row("SwcM", "PpNew", "X", "IfTorque"), connection_row("SwcM", "PpNew", "SwcA", "RpTorque")],
+        [
+            port_row("SwcM", "PpNew", "X", "IfTorque"),
+            connection_row("SwcM", "PpNew", "SwcA", "RpTorque"),
+        ],
         [R, R],
         (c.PORT_DIRECTION, c.REF_UNKNOWN_PORT),
     ),

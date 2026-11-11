@@ -18,7 +18,7 @@ from porttool.core.operations import (
 from porttool.core.pending import PendingQueue, PendingState
 from porttool.core.results import RequestStatus, Severity
 from porttool.validator import codes as c
-from tests.helpers.sample_model import COMPOSITION, CT, DT, IF
+from tests.helpers.sample_model import CT, DT, IF
 from tests.unit.validator.support import (
     BETA,
     MODEL,
@@ -212,7 +212,14 @@ def test_interface_with_no_elements() -> None:
 def test_server_port_whose_operation_already_has_a_runnable_in_the_same_import() -> None:
     outcome = run(
         port_row("SwcA", "PpDiagNew", "P", "IfDiag2", ""),
-        trigger_row("SwcA", "RunReadDtc", "on operation invocation", "PpDiagNew", "ReadDtc", task="Task_Event"),
+        trigger_row(
+            "SwcA",
+            "RunReadDtc",
+            "on operation invocation",
+            "PpDiagNew",
+            "ReadDtc",
+            task="Task_Event",
+        ),
     )
     assert statuses(outcome) == (A, A)
     runnables = [op for op in outcome.change_set.operations if isinstance(op, AddServerRunnable)]
@@ -220,7 +227,9 @@ def test_server_port_whose_operation_already_has_a_runnable_in_the_same_import()
         ("PpDiagNew_Clear", "PpDiagNew_Clear", "PpDiagNew", "Clear"),
         ("RunReadDtc", "RunReadDtc", "PpDiagNew", "ReadDtc"),
     ]
-    triggers = {op.runnable_name: op for op in outcome.change_set.operations if isinstance(op, AddTrigger)}
+    triggers = {
+        op.runnable_name: op for op in outcome.change_set.operations if isinstance(op, AddTrigger)
+    }
     assert set(triggers) == {"PpDiagNew_Clear", "RunReadDtc"}
     assert all(t.kind is TriggerKind.OPERATION_INVOKED for t in triggers.values())
     assert triggers["RunReadDtc"].task == "Task_Event"  # the row names a task
@@ -351,7 +360,9 @@ def test_stale_baseline_object_renamed_or_removed() -> None:
     removed = extend_model(MODEL, without_ports=[f"{CT}/SwcD/PpUnused"])
     rows = [
         port_row("SwcD", "PpUnused", "P", action="DELETE", rid=port_rid("SwcD", "PpUnused")),
-        port_row("SwcD", "PpUnused", "P", init="4", action="MODIFY", rid=port_rid("SwcD", "PpUnused")),
+        port_row(
+            "SwcD", "PpUnused", "P", init="4", action="MODIFY", rid=port_rid("SwcD", "PpUnused")
+        ),
     ]
     outcome = run(*rows[:1], model=removed)
     assert statuses(outcome) == (R,)
@@ -374,7 +385,9 @@ def test_empty_import() -> None:
 
 
 def test_unknown_action_text() -> None:
-    outcome = run(port_row("SwcA", "RpNew", action="UPSERT"), port_row("SwcA", "RpNew2", action="add"))
+    outcome = run(
+        port_row("SwcA", "RpNew", action="UPSERT"), port_row("SwcA", "RpNew2", action="add")
+    )
     assert statuses(outcome) == (R, A)
     assert "UPSERT" in messages(outcome, c.ROW_UNKNOWN_ACTION)[0]
 

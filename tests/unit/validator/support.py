@@ -783,10 +783,10 @@ def operation(outcome: ValidationOutcome, kind: str, index: int = 0) -> AnyOpera
 
 
 def waiting_entry(
-    op: AnyOperation, created: str = "2026-11-01T08:00:00Z", **more: object
+    op: AnyOperation, created: str = "2026-11-01T08:00:00Z", owner_team: str | None = None
 ) -> PendingEntry:
     state = PendingState.ON_HOLD if op.route is Route.HOLD else PendingState.WAITING_FOR_MODEL_OWNER
-    return PendingEntry(operation=op, state=state, created_utc=created, **more)  # type: ignore[arg-type]
+    return PendingEntry(operation=op, state=state, created_utc=created, owner_team=owner_team)
 
 
 def queue_of(*entries: PendingEntry) -> PendingQueue:
@@ -867,7 +867,9 @@ def check_invariants(
 Tweak = Callable[[ProjectConfig], ProjectConfig]
 
 
-def extend_model(model: Model, *, ports: Sequence[Port] = (), without_ports: Sequence[str] = ()) -> Model:
+def extend_model(
+    model: Model, *, ports: Sequence[Port] = (), without_ports: Sequence[str] = ()
+) -> Model:
     """A new model like ``model`` with extra ports, or without some ports (by path)."""
     kept = [port for port in model.ports.values() if port.path not in without_ports]
     return Model(
