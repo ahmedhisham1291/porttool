@@ -20,9 +20,9 @@ HEADER = (
 SECRET_NAMES: tuple[str, ...] = (
     "SwcAlpha", "SwcBeta", "SwcModel", "EcuComposition", "SubComp", "PpSpeed", "RpTorque",
     "IfSpeed", "IfTorque", "RunAlpha_10ms", "ComponentTypes", "PortInterfaces", "EcuProj",
-    "Developer", "DetService", "ServiceComponents", "Unlisted", "MyDataTypes", "PlatformU16",
+    "DevWs", "DetService", "ServiceComponents", "Unlisted", "MyDataTypes", "PlatformU16",
     "CmSpeed", "FlatExtract", "Zusätzlich", "feature/secret-branch", "OsTask_10ms",
-    "Missing", "Appl",
+    "GoneAway", "Appl", "EcucCfg", "GenData",
 )  # fmt: skip
 
 
@@ -253,15 +253,15 @@ ECUC = package(
 )
 
 DCF_FILES: tuple[tuple[str, str], ...] = (
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\SwcAlpha.arxml"),
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\SwcBeta.arxml"),
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\SwcModel.arxml"),
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\EcuComposition.arxml"),
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\SubComp.arxml"),
-    ("PORTINTERFACE", "Config\\Developer\\PortInterfaces\\IfSpeed.arxml"),
-    ("PORTINTERFACE", "Config\\Developer\\PortInterfaces\\IfTorque.arxml"),
-    ("DATATYPE", "Config\\Developer\\DataTypes\\DataTypes.arxml"),
-    ("COMPONENTTYPE", "Config\\Developer\\ComponentTypes\\Missing.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\SwcAlpha.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\SwcBeta.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\SwcModel.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\EcuComposition.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\SubComp.arxml"),
+    ("PORTINTERFACE", "Config\\DevWs\\PortInterfaces\\IfSpeed.arxml"),
+    ("PORTINTERFACE", "Config\\DevWs\\PortInterfaces\\IfTorque.arxml"),
+    ("DATATYPE", "Config\\DevWs\\DataTypes\\DataTypes.arxml"),
+    ("COMPONENTTYPE", "Config\\DevWs\\ComponentTypes\\GoneAway.arxml"),
 )
 
 
@@ -281,33 +281,33 @@ DPA = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     '<Project Version="5.18" Name="EcuProj">\n'
     "  <Folders>\n"
-    "    <ECUC>.\\ECUC</ECUC>\n"
-    "    <GenData>..\\Appl\\GenData</GenData>\n"
+    "    <EcucFolder>.\\EcucCfg</EcucFolder>\n"
+    "    <GenFolder>..\\Appl\\GenData</GenFolder>\n"
     "    <SIP>..\\Sip</SIP>\n"
     "  </Folders>\n"
     "  <DeveloperWorkspace>..\\EcuProj.dcf</DeveloperWorkspace>\n"
-    "  <EcucFile>.\\ECUC\\EcuProj.ecuc.arxml</EcucFile>\n"
+    "  <EcucFile>.\\EcucCfg\\EcuProj.ecuc.arxml</EcucFile>\n"
     "</Project>\n"
 )
 
 FILES: dict[str, str] = {
     "EcuProj.dcf": dcf_text(),
     "Config/EcuProj.dpa": DPA,
-    "Config/Developer/ComponentTypes/SwcAlpha.arxml": SWC_ALPHA,
-    "Config/Developer/ComponentTypes/SwcBeta.arxml": SWC_BETA,
-    "Config/Developer/ComponentTypes/SwcModel.arxml": SWC_MODEL,
-    "Config/Developer/ComponentTypes/EcuComposition.arxml": ECU_COMPOSITION,
-    "Config/Developer/ComponentTypes/SubComp.arxml": SUB_COMP,
-    "Config/Developer/ComponentTypes/Unlisted.arxml": package("ComponentTypes", ""),
-    "Config/Developer/PortInterfaces/IfSpeed.arxml": interface("IfSpeed"),
-    "Config/Developer/PortInterfaces/IfTorque.arxml": interface("IfTorque"),
-    "Config/Developer/DataTypes/DataTypes.arxml": DATA_TYPES,
-    "Config/ECUC/EcuProj.ecuc.arxml": ECUC,
+    "Config/DevWs/ComponentTypes/SwcAlpha.arxml": SWC_ALPHA,
+    "Config/DevWs/ComponentTypes/SwcBeta.arxml": SWC_BETA,
+    "Config/DevWs/ComponentTypes/SwcModel.arxml": SWC_MODEL,
+    "Config/DevWs/ComponentTypes/EcuComposition.arxml": ECU_COMPOSITION,
+    "Config/DevWs/ComponentTypes/SubComp.arxml": SUB_COMP,
+    "Config/DevWs/ComponentTypes/Unlisted.arxml": package("ComponentTypes", ""),
+    "Config/DevWs/PortInterfaces/IfSpeed.arxml": interface("IfSpeed"),
+    "Config/DevWs/PortInterfaces/IfTorque.arxml": interface("IfTorque"),
+    "Config/DevWs/DataTypes/DataTypes.arxml": DATA_TYPES,
+    "Config/EcucCfg/EcuProj.ecuc.arxml": ECUC,
     "Config/ServiceComponents/Det_swc.arxml": SERVICE,
     "Config/System/FlatExtract.arxml": FLAT_EXTRACT,
     "Appl/GenData/Rte.c": "/* generated */\n",
-    "Config/Developer/EcuProj.dcf.lock": "",
-    "Config/Developer/ComponentTypes/SwcAlpha.arxml.bak": "old",
+    "Config/DevWs/EcuProj.dcf.lock": "",
+    "Config/DevWs/ComponentTypes/SwcAlpha.arxml.bak": "old",
     ".gitignore": "Appl/GenData/\n",
 }
 

@@ -17,7 +17,7 @@ from porttool.discovery.runner import GoldenDiffOptions, run_golden_diff
 from tests.unit.discovery import synth
 from tests.unit.discovery.conftest import load_json
 
-SWC_ALPHA = "Config/Developer/ComponentTypes/SwcAlpha.arxml"
+SWC_ALPHA = "Config/DevWs/ComponentTypes/SwcAlpha.arxml"
 NEW_PORT = synth.port("P", "PpNew", "IfSpeed", "99999999-aaaa-4bbb-8ccc-dddddddddddd")
 
 
@@ -26,30 +26,30 @@ def _reference_change(repo: Path) -> tuple[str, str]:
     base = synth.git_init(repo)
     alpha = synth.SWC_ALPHA.replace("          </PORTS>\n", NEW_PORT + "          </PORTS>\n")
     synth.write(repo, SWC_ALPHA, alpha)
-    synth.write(repo, "Config/Developer/PortInterfaces/IfNew.arxml", synth.interface("IfNew"))
-    new_ref = ("PORTINTERFACE", "Config\\Developer\\PortInterfaces\\IfNew.arxml")
+    synth.write(repo, "Config/DevWs/PortInterfaces/IfNew.arxml", synth.interface("IfNew"))
+    new_ref = ("PORTINTERFACE", "Config\\DevWs\\PortInterfaces\\IfNew.arxml")
     synth.write(repo, "EcuProj.dcf", synth.dcf_text((*synth.DCF_FILES, new_ref)))
     composition = synth.ECU_COMPOSITION
     start = composition.index("            <DELEGATION-SW-CONNECTOR>")
     end = composition.index("</DELEGATION-SW-CONNECTOR>\n") + len("</DELEGATION-SW-CONNECTOR>\n")
     synth.write(
         repo,
-        "Config/Developer/ComponentTypes/EcuComposition.arxml",
+        "Config/DevWs/ComponentTypes/EcuComposition.arxml",
         composition[:start] + composition[end:],
     )
     synth.write(
         repo,
-        "Config/Developer/ComponentTypes/SwcBeta.arxml",
+        "Config/DevWs/ComponentTypes/SwcBeta.arxml",
         synth.SWC_BETA.replace("\n", "\r\n"),
     )
     synth.write(
         repo,
-        "Config/Developer/DataTypes/DataTypes.arxml",
+        "Config/DevWs/DataTypes/DataTypes.arxml",
         synth.DATA_TYPES.replace("<CATEGORY>LINEAR</CATEGORY>", "<CATEGORY>TEXTTABLE</CATEGORY>"),
     )
     synth.write(
         repo,
-        "Config/Developer/ComponentTypes/SubComp.arxml",
+        "Config/DevWs/ComponentTypes/SubComp.arxml",
         synth.SUB_COMP.replace("  ", "    "),
     )
     (repo / "Config" / "System" / "FlatExtract.arxml").unlink()
@@ -70,12 +70,12 @@ def golden(repo: Path) -> dict[str, Any]:
 def test_golden_diff_lists_changed_files_with_status(golden: dict[str, Any]) -> None:
     status = {path: item["status"] for path, item in golden["_files"].items()}
     assert status == {
-        "Config/Developer/ComponentTypes/EcuComposition.arxml": "modified",
-        "Config/Developer/ComponentTypes/SubComp.arxml": "modified",
-        "Config/Developer/ComponentTypes/SwcAlpha.arxml": "modified",
-        "Config/Developer/ComponentTypes/SwcBeta.arxml": "modified",
-        "Config/Developer/DataTypes/DataTypes.arxml": "modified",
-        "Config/Developer/PortInterfaces/IfNew.arxml": "added",
+        "Config/DevWs/ComponentTypes/EcuComposition.arxml": "modified",
+        "Config/DevWs/ComponentTypes/SubComp.arxml": "modified",
+        "Config/DevWs/ComponentTypes/SwcAlpha.arxml": "modified",
+        "Config/DevWs/ComponentTypes/SwcBeta.arxml": "modified",
+        "Config/DevWs/DataTypes/DataTypes.arxml": "modified",
+        "Config/DevWs/PortInterfaces/IfNew.arxml": "added",
         "Config/System/FlatExtract.arxml": "deleted",
         "EcuProj.dcf": "modified",
         "Notes.txt": "added",
@@ -110,7 +110,7 @@ def test_golden_diff_added_port_gives_paths_position_and_exact_xml_text(
 
 
 def test_golden_diff_added_file_holds_the_whole_file_as_template(golden: dict[str, Any]) -> None:
-    item = golden["_files"]["Config/Developer/PortInterfaces/IfNew.arxml"]
+    item = golden["_files"]["Config/DevWs/PortInterfaces/IfNew.arxml"]
     assert item["status"] == "added" and item["bytes"]["base"] is None
     assert item["bytes"]["head"]["line_endings"] == "lf"
     change = item["elements"][0]
@@ -123,7 +123,7 @@ def test_golden_diff_added_file_holds_the_whole_file_as_template(golden: dict[st
     assert dcf[0]["tag_path"] == "/DCF/FILEREF/ARXML"
     assert dcf[0]["xml"] == (
         '    <ARXML ROOTITEM="PORTINTERFACE" TYPE="">'
-        "Config\\Developer\\PortInterfaces\\IfNew.arxml</ARXML>"
+        "Config\\DevWs\\PortInterfaces\\IfNew.arxml</ARXML>"
     )
     assert dcf[0]["position"]["index"] == 9
 
@@ -131,7 +131,7 @@ def test_golden_diff_added_file_holds_the_whole_file_as_template(golden: dict[st
 def test_golden_diff_deleted_element_and_deleted_file_are_listed_without_text(
     golden: dict[str, Any],
 ) -> None:
-    item = golden["_files"]["Config/Developer/ComponentTypes/EcuComposition.arxml"]
+    item = golden["_files"]["Config/DevWs/ComponentTypes/EcuComposition.arxml"]
     assert item["summary"]["elements_removed"] == 1
     change = item["elements"][0]
     assert change["change"] == "removed" and "xml" not in change
@@ -144,7 +144,7 @@ def test_golden_diff_deleted_element_and_deleted_file_are_listed_without_text(
 
 
 def test_golden_diff_file_whose_only_change_is_line_endings(golden: dict[str, Any]) -> None:
-    item = golden["_files"]["Config/Developer/ComponentTypes/SwcBeta.arxml"]
+    item = golden["_files"]["Config/DevWs/ComponentTypes/SwcBeta.arxml"]
     assert item["elements"] == []
     assert item["summary"]["only_line_endings_changed"] is True
     assert item["summary"]["element_content_identical"] is True
@@ -156,7 +156,7 @@ def test_golden_diff_file_whose_only_change_is_line_endings(golden: dict[str, An
 
 
 def test_golden_diff_reindented_file_is_layout_only(golden: dict[str, Any]) -> None:
-    item = golden["_files"]["Config/Developer/ComponentTypes/SubComp.arxml"]
+    item = golden["_files"]["Config/DevWs/ComponentTypes/SubComp.arxml"]
     assert item["elements"] == [] and item["summary"]["only_layout_changed"] is True
     assert item["bytes"]["changed"] == ["indent"]
     assert (item["bytes"]["base"]["indent"], item["bytes"]["head"]["indent"]) == (
@@ -168,7 +168,7 @@ def test_golden_diff_reindented_file_is_layout_only(golden: dict[str, Any]) -> N
 def test_golden_diff_changed_value_is_reported_as_shape_not_as_value(
     golden: dict[str, Any],
 ) -> None:
-    item = golden["_files"]["Config/Developer/DataTypes/DataTypes.arxml"]
+    item = golden["_files"]["Config/DevWs/DataTypes/DataTypes.arxml"]
     change = item["elements"][0]
     assert change["change"] == "changed"
     assert change["tag_path"].endswith("/COMPU-METHOD/CATEGORY")

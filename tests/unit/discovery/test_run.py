@@ -56,7 +56,7 @@ def test_inventory_counts_kinds_and_schema_version(git_repo: Path, discover: Run
     assert kinds["ECUC-MODULE-CONFIGURATION-VALUES"]["objects"] == 3
     assert inventory["internal_behaviors"] == 3
     assert inventory["schema_versions"][0]["version_hint"] == "4-2-2"
-    assert inventory["largest_files"][0]["file"] == "Config/ECUC/EcuProj.ecuc.arxml"
+    assert inventory["largest_files"][0]["file"] == "Config/EcucCfg/EcuProj.ecuc.arxml"
 
 
 def test_storage_map_tells_layout_folder_package_and_file_naming(
@@ -66,14 +66,14 @@ def test_storage_map_tells_layout_folder_package_and_file_naming(
     swc = kinds["APPLICATION-SW-COMPONENT-TYPE"]
     assert swc["layout"] == "one-object-per-file"
     assert swc["folders"][0] == {
-        "folder": "Config/Developer/ComponentTypes",
+        "folder": "Config/DevWs/ComponentTypes",
         "files": 3,
         "objects": 3,
     }
     assert swc["packages"][0] == {"package": "/ComponentTypes", "objects": 3}
     assert swc["file_naming"][0]["pattern"] == "{name}"
     assert "PORTS" in swc["child_elements"]
-    assert kinds["IMPLEMENTATION-DATA-TYPE"]["folders"][0]["folder"] == "Config/Developer/DataTypes"
+    assert kinds["IMPLEMENTATION-DATA-TYPE"]["folders"][0]["folder"] == "Config/DevWs/DataTypes"
     assert kinds["SERVICE-SW-COMPONENT-TYPE"]["file_naming"][0]["pattern"] == "unrelated"
     assert kinds["ECUC-MODULE-CONFIGURATION-VALUES"]["layout"] == "many-objects-per-file"
 
@@ -93,16 +93,16 @@ def test_workspace_index_summarises_unknown_format_and_compares_with_disk(
     listing = dcf["arxml"]
     assert listing["listed"] == 9 and listing["listed_existing"] == 8
     assert listing["listed_missing"]["items"] == [
-        "Config\\Developer\\ComponentTypes\\Missing.arxml"
+        "Config\\DevWs\\ComponentTypes\\GoneAway.arxml"
     ]
     assert listing["on_disk_not_listed_in_folders_with_listed_files"]["items"] == [
-        "Config/Developer/ComponentTypes/Unlisted.arxml"
+        "Config/DevWs/ComponentTypes/Unlisted.arxml"
     ]
     assert dcf["paths"]["separators"] == {"backslash": 9}
     assert dcf["paths"]["relative_resolved_against_the_files_folder"]["existing"] == 8
     dpa = result.report["workspace"]["dpa"]["files"][0]
     locations = {row["location"]: row for row in dpa["paths"]["by_location"]}
-    assert locations["/Project/Folders/ECUC#text"]["existing_folders"] == 1
+    assert locations["/Project/Folders/EcucFolder#text"]["existing_folders"] == 1
     assert locations["/Project/DeveloperWorkspace#text"]["existing_files"] == 1
     assert "DISC-WS-MISSING" in codes(result)
 
@@ -124,7 +124,7 @@ def test_xml_style_reports_uuid_formats_and_admin_data_gids(
     assert overall["empty_elements"]["self_closing"] == 1
     assert overall["files_with_head_comment"] == 1
     folders = {row["folder"]: row for row in style["by_folder"]}
-    assert folders["Config/Developer/ComponentTypes"]["files"] == 6
+    assert folders["Config/DevWs/ComponentTypes"]["files"] == 6
 
 
 def test_ecuc_lists_definition_suffixes_and_counts_mappings_and_tasks(
@@ -172,7 +172,7 @@ def test_composition_shape_finds_nesting_connectors_and_root(
     assert composition["delegation_connectors"] == 1
     assert composition["connector_files"] == [
         {
-            "file": "Config/Developer/ComponentTypes/EcuComposition.arxml",
+            "file": "Config/DevWs/ComponentTypes/EcuComposition.arxml",
             "assembly": 2,
             "delegation": 1,
         }
@@ -198,7 +198,7 @@ def test_owner_proposal_marks_model_and_locked_candidates(
     csv_text = (Path(result.out_dir) / "owners_proposed.csv").read_text(encoding="utf-8")
     lines = csv_text.splitlines()
     assert lines[0] == "swc,team,arxml_owner,authoring_tool,export_folder"
-    assert "SwcModel,,model,Simulink,Config/Developer/ComponentTypes" in lines
+    assert "SwcModel,,model,Simulink,Config/DevWs/ComponentTypes" in lines
     assert "SwcAlpha,,davinci,," in lines
     assert not any(line.startswith("DetService") for line in lines)
     locked_text = (Path(result.out_dir) / "locked_proposed.txt").read_text(encoding="utf-8")
@@ -214,7 +214,7 @@ def test_generated_folder_component_is_a_locked_candidate(repo: Path, discover: 
 
 
 def test_lock_and_temp_files_are_listed_with_timestamps(git_repo: Path, discover: Runner) -> None:
-    synth.write(git_repo, "Config/Developer/ComponentTypes/~SwcAlpha.tmp", "x")
+    synth.write(git_repo, "Config/DevWs/ComponentTypes/~SwcAlpha.tmp", "x")
     result = discover(git_repo)
     locks = result.report["lock_signs"]
     assert locks["count"] == 3
@@ -272,7 +272,7 @@ def test_dcf_that_is_not_xml_at_all_is_described_by_line_shapes(
     synth.write(
         repo,
         "EcuProj.dcf",
-        "[Files]\nFile1=Config\\Developer\\DataTypes\\DataTypes.arxml\nFile2=Nope\\Gone.arxml\n",
+        "[Files]\nFile1=Config\\DevWs\\DataTypes\\DataTypes.arxml\nFile2=Nope\\Gone.arxml\n",
     )
     dcf = discover(repo).report["workspace"]["dcf"]["files"][0]
     assert dcf["xml_ok"] is False and dcf["structure"] == []
@@ -397,7 +397,7 @@ def test_exclude_globs_skip_folders_and_git_folder_is_never_read(
     git_repo: Path, discover: Runner
 ) -> None:
     synth.write(git_repo, ".git/hidden.arxml", synth.SWC_BETA)
-    result = discover(git_repo, exclude=("Config/ECUC/**", "*.bak", "System"))
+    result = discover(git_repo, exclude=("Config/EcucCfg/**", "*.bak", "System"))
     inventory = result.report["inventory"]
     assert inventory["by_type"]["arxml"]["count"] == 10
     assert result.report["ecuc"]["module_configurations"] == 0
@@ -567,7 +567,7 @@ def test_no_tools_starts_nothing(
 
 
 def test_cli_run_exits_0_with_findings_and_prints_the_folder(git_repo: Path) -> None:
-    shutil.rmtree(git_repo / "Config" / "ECUC")
+    shutil.rmtree(git_repo / "Config" / "EcucCfg")
     done = CliRunner().invoke(_cli(), ["discover", "run", "--repo", str(git_repo), "--no-tools"])
     assert done.exit_code == 0, done.output
     assert "[10/10]" in done.output
