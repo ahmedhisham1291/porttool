@@ -86,6 +86,14 @@ def _fulfilled_by(world: World, req: Req, interface: PortInterface) -> bool:
     element = req.cell("element")
     argument = req.cell("argument")
     type_text = req.cell("data_type")
+    if interface.kind is InterfaceKind.MODE_SWITCH:
+        group = interface.mode_group_path or ""
+        return (
+            not argument
+            and not req.cell("direction")
+            and (not interface.elements or interface.element(element) is not None)
+            and (not type_text or type_text in (group, group.rsplit("/", 1)[-1]))
+        )
     type_path = _quiet_type(world, type_text) if type_text else None
     if type_text and type_path is None:
         return False
@@ -104,19 +112,12 @@ def _fulfilled_by(world: World, req: Req, interface: PortInterface) -> bool:
         )
     if argument or req.cell("direction"):
         return False
-    if interface.kind is InterfaceKind.MODE_SWITCH and not interface.elements:
-        return bool(type_text) and type_text in (
-            interface.mode_group_path,
-            (interface.mode_group_path or "").rsplit("/", 1)[-1],
-        )
     existing = interface.element(element)
     if existing is None:
         return False
     queued = parse_flag(req.cell("queued"))
     if req.cell("queued") and queued is not existing.is_queued:
         return False
-    if interface.kind is InterfaceKind.MODE_SWITCH:
-        return True
     return type_path is None or existing.type_path == type_path
 
 
