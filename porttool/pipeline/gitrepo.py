@@ -194,7 +194,9 @@ class Git:
             stderr=err.decode("utf-8", errors="replace"),
         )
         _logger.debug(
-            "git %s -> %s in %.2f s", " ".join(args[:4]), result.returncode,
+            "git %s -> %s in %.2f s",
+            " ".join(args[:4]),
+            result.returncode,
             time.perf_counter() - started,
         )
         if check and not result.ok:
