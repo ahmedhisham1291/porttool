@@ -49,7 +49,7 @@ _NUMERIC_KEYS = frozenset(
 _WIDTHS: Mapping[str, int] = {
     "row_id": 150,
     "direction": 100,
-    "connected": 130,
+    "connected": 150,
     "partner_count": 100,
     "kind": 150,
     "level": 130,
