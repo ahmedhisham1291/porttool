@@ -5,6 +5,7 @@ from __future__ import annotations
 UNSUPPORTED = "WRT-UNSUPPORTED-001"  # operation or variant not supported yet
 REF_MISSING = "WRT-REF-001"  # a referenced object does not exist
 REF_KIND = "WRT-REF-002"  # the referenced object cannot be used that way
+INCOMPLETE = "WRT-REQ-001"  # the request lacks a value the new element needs
 NAME_USED = "WRT-NAME-001"  # the short name is taken by a different object
 OWNER = "WRT-OWNER-001"  # the target SWC is model-owned or locked
 NO_BEHAVIOR = "WRT-BEHAVIOR-001"  # the SWC has no internal behavior

@@ -18,6 +18,7 @@ from porttool.core import fsutil
 from porttool.core.config import ProjectConfig
 from porttool.core.errors import RepoStateError
 from porttool.core.models import (
+    AccessKind,
     ArxmlOwner,
     Component,
     DataType,
@@ -28,17 +29,42 @@ from porttool.core.models import (
     PortInterface,
     Runnable,
     SourceFile,
+    TriggerKind,
 )
 from porttool.core.operations import (
     APPLY_ORDER,
+    AddAccessPoint,
     AddConnector,
     AddPort,
+    AddServerRunnable,
+    AddTrigger,
     AnyOperation,
 )
 from porttool.core.results import Finding, RowRef, Severity
 from porttool.writer import codes, order, templates
 from porttool.writer.settings import WriterSettings
 from porttool.writer.xmltext import Document, Node, XmlIndexError, element
+
+#: Container of a runnable and element kind per access kind.
+_ACCESS: dict[AccessKind, tuple[str, str]] = {
+    AccessKind.IMPLICIT_READ: ("DATA-READ-ACCESSS", "VARIABLE-ACCESS"),
+    AccessKind.IMPLICIT_WRITE: ("DATA-WRITE-ACCESSS", "VARIABLE-ACCESS"),
+    AccessKind.EXPLICIT_SEND: ("DATA-SEND-POINTS", "VARIABLE-ACCESS"),
+    AccessKind.EXPLICIT_READ: ("DATA-RECEIVE-POINT-BY-ARGUMENTS", "VARIABLE-ACCESS"),
+    AccessKind.QUEUED_RECEIVE: ("DATA-RECEIVE-POINT-BY-ARGUMENTS", "VARIABLE-ACCESS"),
+    AccessKind.SYNC_SERVER_CALL: ("SERVER-CALL-POINTS", "SYNCHRONOUS-SERVER-CALL-POINT"),
+    AccessKind.ASYNC_SERVER_CALL: ("SERVER-CALL-POINTS", "ASYNCHRONOUS-SERVER-CALL-POINT"),
+}
+_SENDING = (AccessKind.IMPLICIT_WRITE, AccessKind.EXPLICIT_SEND)
+_CALLING = (AccessKind.SYNC_SERVER_CALL, AccessKind.ASYNC_SERVER_CALL)
+_IMPLICIT = (AccessKind.IMPLICIT_READ, AccessKind.IMPLICIT_WRITE)
+_EVENTS: dict[TriggerKind, str] = {
+    TriggerKind.PERIODIC: "TIMING-EVENT",
+    TriggerKind.DATA_RECEIVED: "DATA-RECEIVED-EVENT",
+    TriggerKind.DATA_RECEIVE_ERROR: "DATA-RECEIVE-ERROR-EVENT",
+    TriggerKind.OPERATION_INVOKED: "OPERATION-INVOKED-EVENT",
+    TriggerKind.INIT: "INIT-EVENT",
+}
 
 PLANNED = "planned"
 EXISTS = "exists"
@@ -141,6 +167,8 @@ class Session:
         self._new_interfaces: dict[str, PortInterface] = {}
         self._new_runnables: dict[tuple[str, str], Runnable] = {}
         self._new_types: dict[str, DataType] = {}
+        self._new_accesses: set[tuple[str, str, str, str]] = set()
+        self._new_triggers: set[tuple[str, str, str | None, str | None, float | None]] = set()
         self._parts_cache: dict[str, list[tuple[Document, Node]]] = {}
         self._uuid_cache: dict[int, Callable[[], str | None]] = {}
 
@@ -268,6 +296,44 @@ class Session:
             )
         return found
 
+    def runnable(self, swc_path: str, name: str) -> Runnable:
+        found = self._new_runnables.get((swc_path, name)) or self.model.find_runnable(
+            swc_path, name
+        )
+        if found is None:
+            raise Skip(codes.REF_MISSING, f"{_last(swc_path)} has no runnable {name}.", swc_path)
+        return found
+
+    def port_with(
+        self, swc_path: str, port_name: str, kind: InterfaceKind, target: str, *, provided: bool
+    ) -> tuple[Port, PortInterface]:
+        """The port, checked: interface kind, direction, and that ``target`` is in the interface."""
+        port = self.need_port(swc_path, port_name)
+        if port.interface_path is None:
+            raise Skip(codes.REF_MISSING, f"Port {port_name} has no interface.", port.path)
+        interface = self.interface(port.interface_path)
+        wrong = PortDirection.R if provided else PortDirection.P
+        if interface.kind is not kind or port.direction is wrong:
+            side = "provided" if provided else "required"
+            raise Skip(
+                codes.REF_KIND,
+                f"Port {port_name} ({port.direction.value}, {interface.kind.value}) cannot be "
+                f"used here: a {side} {kind.value} port is needed.",
+                port.path,
+            )
+        if kind is InterfaceKind.CLIENT_SERVER:
+            known = interface.operation(target) is not None
+        else:
+            known = interface.element(target) is not None
+        if not known:
+            what = "operation" if kind is InterfaceKind.CLIENT_SERVER else "data element"
+            raise Skip(
+                codes.REF_MISSING,
+                f"{interface.name} has no {what} {target}.",
+                f"{interface.path}/{target}",
+            )
+        return port, interface
+
     def component(self, path: str) -> Component:
         found = self.model.components.get(path)
         if found is None:
@@ -344,6 +410,44 @@ class Session:
             if node is not None:
                 found.append((document, node))
         return found
+
+    def behavior(self, swc: Component) -> tuple[Document, Node, Node]:
+        """(file, component element, SWC-INTERNAL-BEHAVIOR element) of ``swc``."""
+        wanted = _last(swc.behavior_path) if swc.behavior_path else None
+        parts = self.parts(swc.path)
+        candidates = parts
+        for attempt in range(2):
+            if attempt == 1:
+                if swc.behavior_path is None:
+                    break
+                # The model knows a behavior, but not in which file of a split component.
+                candidates = self._scan(swc.path, [document.rel_path for document, _ in parts])
+                parts.extend(candidates)
+            for document, node in candidates:
+                holder = node.child("INTERNAL-BEHAVIORS")
+                if holder is None:
+                    continue
+                for child in holder.children:
+                    if child.tag == "SWC-INTERNAL-BEHAVIOR" and (
+                        wanted is None or document.name_of(child) == wanted
+                    ):
+                        return document, node, child
+        raise Skip(
+            codes.NO_BEHAVIOR,
+            f"{swc.name} has no internal behavior. Create it in DaVinci Developer first.",
+            swc.path,
+        )
+
+    @staticmethod
+    def free_name(document: Document, scope: Node, base: str) -> str:
+        """``base``, or ``base_1``, ``base_2``, ... if the name is taken inside ``scope``."""
+        taken = {document.name_of(node) for node in document.identifiables(scope)}
+        name = base
+        count = 0
+        while name in taken:
+            count += 1
+            name = f"{base}_{count}"
+        return name
 
     @staticmethod
     def pick(parts: Sequence[tuple[Document, Node]], *tags: str) -> tuple[Document, Node]:
@@ -534,6 +638,206 @@ class Session:
             f"{op.requester_prototype}.{op.requester_port} ({op.name})"
         )
 
+    def add_server_runnable(self, op: AddServerRunnable, state: OpState) -> None:
+        swc = self.component(op.swc_path)
+        existing = self._new_runnables.get((op.swc_path, op.name)) or self.model.find_runnable(
+            op.swc_path, op.name
+        )
+        if existing is not None:
+            if existing.symbol == op.symbol:
+                raise AlreadyThere(
+                    f"Runnable {op.name} of {swc.name} already exists.", existing.path
+                )
+            raise Skip(
+                codes.NAME_USED,
+                f"{swc.name} already has a runnable {op.name} with another symbol.",
+                existing.path,
+            )
+        self.port_with(
+            op.swc_path, op.port_name, InterfaceKind.CLIENT_SERVER, op.operation, provided=True
+        )
+        document, top, behavior = self.behavior(swc)
+        path = f"{op.swc_path}/{document.name_of(behavior)}/{op.name}"
+        self.check_free(document, behavior, op.name, path)
+
+        holder = self.ensure(op, document, behavior, "RUNNABLES")
+        document.insert(
+            holder, templates.runnable(op.name, op.symbol, self.uuid_maker(document, holder))
+        )
+        self._new_runnables[(op.swc_path, op.name)] = Runnable(
+            path=path, name=op.name, swc_path=op.swc_path, symbol=op.symbol
+        )
+        self.touch(state, document, top, f"runnable {op.name}")
+        state.preview = (
+            f"{swc.name}: add server runnable {op.name} (symbol {op.symbol}) "
+            f"for {op.port_name}.{op.operation}"
+        )
+
+    def add_access_point(self, op: AddAccessPoint, state: OpState) -> None:
+        swc = self.component(op.swc_path)
+        shape = _ACCESS.get(op.kind)
+        if shape is None:
+            raise Skip(codes.UNSUPPORTED, f"Access kind '{op.kind.value}' is not supported yet.")
+        container, tag = shape
+        runnable = self.runnable(op.swc_path, op.runnable_name)
+        calling = op.kind in _CALLING
+        port, interface = self.port_with(
+            op.swc_path,
+            op.port_name,
+            InterfaceKind.CLIENT_SERVER if calling else InterfaceKind.SENDER_RECEIVER,
+            op.target,
+            provided=op.kind in _SENDING,
+        )
+        if not calling:
+            data = interface.element(op.target)
+            queued = data is not None and data.is_queued
+            if queued and op.kind in _IMPLICIT:
+                raise Skip(
+                    codes.REF_KIND,
+                    f"{op.target} is a queued element: it cannot be accessed implicitly.",
+                    port.path,
+                )
+            if op.kind is AccessKind.QUEUED_RECEIVE and not queued:
+                raise Skip(
+                    codes.REF_KIND,
+                    f"{op.target} is not a queued element: use 'explicit read'.",
+                    port.path,
+                )
+        key = (runnable.path, port.path, op.target, container + tag)
+        there = key in self._new_accesses or any(
+            access.port_path == port.path
+            and access.target == op.target
+            and _ACCESS.get(access.kind) == shape
+            for access in self.model.access_points_of_runnable(runnable.path)
+        )
+        if there:
+            raise AlreadyThere(
+                f"{runnable.name} already has the access '{op.kind.value}' to "
+                f"{op.port_name}.{op.target}.",
+                runnable.path,
+            )
+        document, top, behavior = self.behavior(swc)
+        node = document.named_child(behavior, op.runnable_name)
+        if node is None or node.tag != "RUNNABLE-ENTITY":
+            raise Skip(
+                codes.LOCATE,
+                f"Runnable {op.runnable_name} was not found in {document.rel_path}.",
+                runnable.path,
+                document.rel_path,
+            )
+        name = self.free_name(
+            document,
+            node,
+            self.settings.access_point_pattern.format(
+                prefix=self.settings.access_point_prefixes.get(op.kind.value, "AP"),
+                runnable=op.runnable_name,
+                port=op.port_name,
+                target=op.target,
+            ),
+        )
+
+        holder = self.ensure(op, document, node, container)
+        uuid = self.uuid_maker(document, holder)
+        target_path = f"{interface.path}/{op.target}"
+        if calling:
+            new = templates.server_call_point(
+                tag, name, port, target_path, self.settings.server_call_timeout, uuid
+            )
+        else:
+            new = templates.variable_access(name, port, target_path, uuid)
+        document.insert(holder, new)
+        self._new_accesses.add(key)
+        self.touch(state, document, top, f"access {name}")
+        state.preview = (
+            f"{swc.name}: {op.runnable_name} gets {op.kind.value} of "
+            f"{op.port_name}.{op.target} ({name})"
+        )
+
+    def add_trigger(self, op: AddTrigger, state: OpState) -> None:
+        swc = self.component(op.swc_path)
+        tag = _EVENTS.get(op.kind)
+        if tag is None:
+            raise Skip(codes.UNSUPPORTED, f"Trigger kind '{op.kind.value}' is not supported yet.")
+        runnable = self.runnable(op.swc_path, op.runnable_name)
+        port: Port | None = None
+        target: str | None = None
+        period: float | None = None
+        if op.kind is TriggerKind.PERIODIC:
+            if op.period_s is None or op.period_s <= 0:
+                raise Skip(codes.INCOMPLETE, "A periodic trigger needs a period above 0 s.")
+            period = op.period_s
+        elif op.kind is not TriggerKind.INIT:
+            if op.port_name is None or op.target is None:
+                raise Skip(codes.INCOMPLETE, f"A trigger '{op.kind.value}' needs port and target.")
+            served = op.kind is TriggerKind.OPERATION_INVOKED
+            target = op.target
+            port, interface = self.port_with(
+                op.swc_path,
+                op.port_name,
+                InterfaceKind.CLIENT_SERVER if served else InterfaceKind.SENDER_RECEIVER,
+                target,
+                provided=served,
+            )
+        port_path = port.path if port is not None else None
+        key = (runnable.path, tag, port_path, target, period)
+        there = key in self._new_triggers or any(
+            trigger.kind is op.kind
+            and trigger.port_path == port_path
+            and trigger.target == target
+            and _same_period(trigger.period_s, period)
+            for trigger in self.model.triggers_of(runnable.path)
+        )
+        if there:
+            raise AlreadyThere(
+                f"{runnable.name} already has this '{op.kind.value}' trigger.", runnable.path
+            )
+        document, top, behavior = self.behavior(swc)
+        pattern = self.settings.event_patterns.get(op.kind.value, "EV_{runnable}")
+        name = self.free_name(
+            document,
+            behavior,
+            pattern.format(runnable=op.runnable_name, port=op.port_name, target=op.target),
+        )
+        path = f"{op.swc_path}/{document.name_of(behavior)}/{name}"
+
+        holder = self.ensure(op, document, behavior, "EVENTS")
+        uuid = self.uuid_maker(document, holder)
+        details: Node | None = None
+        if period is not None:
+            details = element("PERIOD", text=templates.number(period))
+        elif port is not None and target is not None:
+            target_path = f"{interface.path}/{target}"
+            if op.kind is TriggerKind.OPERATION_INVOKED:
+                details = templates.operation_iref(port, target_path)
+            else:
+                details = templates.data_iref(port, target_path)
+        document.insert(holder, templates.event(tag, name, runnable.path, uuid, details))
+        self._new_triggers.add(key)
+        self.touch(state, document, top, f"event {name}")
+        state.infos.append(
+            op_finding(
+                op,
+                codes.INFO_EVENT,
+                Severity.INFO,
+                f"Created {tag} {path} for runnable {runnable.name}; requested task: "
+                f"{op.task or 'none'}; after event: {op.position_after_event or 'none'}.",
+                path,
+                document.rel_path,
+            )
+        )
+        state.preview = (
+            f"{swc.name}: {op.runnable_name} gets trigger '{op.kind.value}' ({name})"
+            + (f", period {templates.number(period)} s" if period is not None else "")
+            + (f", {op.port_name}.{target}" if port is not None else "")
+            + (f", task {op.task}" if op.task else "")
+        )
+
+
+def _same_period(left: float | None, right: float | None) -> bool:
+    if left is None or right is None:
+        return left is right
+    return abs(left - right) <= 1e-9 * max(abs(left), abs(right), 1.0)
+
 
 def _no_uuid() -> str | None:
     return None
@@ -542,4 +846,7 @@ def _no_uuid() -> str | None:
 _HANDLERS: dict[str, Callable[[Session, AnyOperation, OpState], None]] = {
     "add_port": Session.add_port,  # type: ignore[dict-item]
     "add_connector": Session.add_connector,  # type: ignore[dict-item]
+    "add_server_runnable": Session.add_server_runnable,  # type: ignore[dict-item]
+    "add_access_point": Session.add_access_point,  # type: ignore[dict-item]
+    "add_trigger": Session.add_trigger,  # type: ignore[dict-item]
 }

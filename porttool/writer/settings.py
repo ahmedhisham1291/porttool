@@ -41,6 +41,24 @@ _EVENT_PATTERNS: Mapping[str, str] = MappingProxyType(
 )
 
 
+_PLACEHOLDERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "access_point_pattern": ("prefix", "runnable", "port", "target"),
+        "event_patterns": ("runnable", "port", "target"),
+        "compu_method_pattern": ("name",),
+        "constraint_pattern": ("name",),
+    }
+)
+
+
+def _formats(pattern: str, names: tuple[str, ...]) -> bool:
+    """True if ``pattern`` is a format string that uses only ``names`` and is not empty."""
+    try:
+        return bool(pattern.format(**dict.fromkeys(names, "x")))
+    except (KeyError, IndexError, ValueError):
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class WriterSettings:
     #: Where new data types and interfaces go: into the file that holds their package,
@@ -114,6 +132,14 @@ class WriterSettings:
                     continue
                 value = MappingProxyType({**default, **value})
             values[key] = value
+        for key, names in _PLACEHOLDERS.items():
+            patterns = values.get(key)
+            if patterns is None:
+                continue
+            texts = patterns.values() if isinstance(patterns, Mapping) else [patterns]
+            if not all(_formats(str(text), names) for text in texts):
+                warn(f"{key} may only use the placeholders {', '.join(names)}; using the default.")
+                del values[key]
         for key, allowed in (("new_object_placement", PLACEMENTS), ("uuid", UUID_MODES)):
             if key in values and values[key] not in allowed:
                 default = getattr(defaults, key)
