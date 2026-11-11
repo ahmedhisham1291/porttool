@@ -81,10 +81,11 @@ def _table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> list[str]:
     return lines
 
 
-def _counts(counter: Mapping[str, Any] | None, limit: int = 4) -> str:
+def _counts(counter: Mapping[str, Any] | None, limit: int = 4, code: bool = False) -> str:
     if not counter:
         return "-"
-    parts = [f"{key} ({value})" for key, value in list(counter.items())[:limit]]
+    mark = "`" if code else ""
+    parts = [f"{mark}{key}{mark} ({value})" for key, value in list(counter.items())[:limit]]
     extra = len(counter) - limit
     return "; ".join(parts) + (f"; +{extra} more" if extra > 0 else "")
 
@@ -413,7 +414,7 @@ def render_discovery_md(report: Mapping[str, Any]) -> str:
     lines += [
         f"All {overall.get('files')} ARXML files together:",
         "",
-        f"- declaration: {_counts(overall.get('declaration'))}",
+        f"- declaration: {_counts(overall.get('declaration'), code=True)}",
         f"- declared encoding: {_counts(overall.get('declared_encoding'))}; BOM: "
         f"{_counts(overall.get('bom'))}",
         f"- line endings: {_counts(overall.get('line_endings'))}; trailing newline: "
@@ -421,7 +422,7 @@ def render_discovery_md(report: Mapping[str, Any]) -> str:
         f"- indentation: {_counts(overall.get('indent'))}; attribute quotes: "
         f"{_counts(overall.get('attribute_quote'))}",
         f"- root prefix: {_counts(overall.get('root_prefix'))}",
-        f"- root start tag: {_counts(overall.get('root_start_tag'), 2)}",
+        f"- root start tag: {_counts(overall.get('root_start_tag'), 2, code=True)}",
         f"- UUID format: {_counts(overall.get('uuid_format'))}; UUID version digit: "
         f"{_counts(overall.get('uuid_version_digit'))}",
         f"- empty elements: {_counts(overall.get('empty_elements'))}",
