@@ -272,18 +272,24 @@ class DaVinciToolRunner:
         )
 
     def rendered_commands(self) -> tuple[PreparedCommand, ...]:
-        """Every action's command line with example values, for ``show-commands``. Runs nothing."""
+        """Every action's command line with example values, for ``show-commands``. Runs nothing.
+
+        Each action gets examples only for the values it is really given at run time, so a
+        template that asks for something its action never has shows up as unresolved.
+        """
         modules = tuple(self._config.generate_modules)
-        examples: dict[str, Value] = {
-            "arxml": "<delta.arxml>",
-            "modules": modules,
-            "modules_csv": ",".join(modules),
-            "swcs": ("<SwcName>",),
-            "swcs_csv": "<SwcName>",
-            "request_json": "<script_request.json>",
-            "result_json": "<script_result.json>",
+        examples: dict[str, dict[str, Value]] = {
+            "import": {"arxml": "<delta.arxml>"},
+            "contract_headers": {"swcs": ("<SwcName>",), "swcs_csv": "<SwcName>"},
+            "script_task": {
+                "request_json": "<script_request.json>",
+                "result_json": "<script_result.json>",
+            },
+            "generate": {"modules": modules, "modules_csv": ",".join(modules)},
         }
-        return tuple(self.prepare(action, examples, check_paths=False) for action in ACTIONS)
+        return tuple(
+            self.prepare(action, examples.get(action), check_paths=False) for action in ACTIONS
+        )
 
     # ------------------------------------------------------------- running
 
@@ -527,6 +533,13 @@ class DaVinciToolRunner:
             object_path=f"davinci.commands.{action}",
         )
         return ToolResult(tool, False, None, 0.0, None, (finding,))
+
+    async def doctor(self, ctx: JobContext) -> tuple[Finding, ...]:
+        """What has to be fixed before a DaVinci step can run. Starts no tool."""
+        from porttool.davinci.doctor import doctor_findings  # doctor builds on this module
+
+        ctx.check_cancelled()
+        return await ctx.run_blocking(lambda: doctor_findings(self))
 
     async def check_workspace(self, ctx: JobContext) -> ToolResult:
         return await self.run_action("check", None, ctx)
