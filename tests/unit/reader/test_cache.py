@@ -304,6 +304,7 @@ def test_cache_is_written_in_batches_during_a_long_load(
     for index in range(40):
         repo.write(f"Config/Developer/S{index:02d}.arxml", doc(package("P", swc(f"S{index:02d}"))))
     monkeypatch.setattr(reader_module, "_FLUSH_COUNT", 8)
+    monkeypatch.setattr(reader_module, "_PARSE_WINDOW", 4)
     ctx = repo.context(workers=1, cancel_after_progress=30)
     with pytest.raises(JobCancelled):
         repo.load(ctx=ctx)

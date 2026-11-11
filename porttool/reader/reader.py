@@ -13,6 +13,7 @@ records runs in the worker pool through ``JobContext.run_blocking``:
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import time
 from dataclasses import dataclass, field
@@ -41,6 +42,9 @@ _LOG = logging.getLogger(__name__)
 #: New cache entries are written when this many are waiting or this much time has passed.
 _FLUSH_COUNT = 256
 _FLUSH_SECONDS = 2.0
+#: Parse tasks handed to the worker pool at the same time (the pool runs as many of
+#: them in parallel as it has threads; the rest of the window waits in its queue).
+_PARSE_WINDOW = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,31 +251,45 @@ class ArxmlReader:
             suffixes = self.options.ecuc_layout.container_suffixes
             # Largest first: the big files then overlap with many small ones instead of
             # being left alone at the end.
-            tasks = [
-                asyncio.ensure_future(
-                    ctx.run_blocking(
-                        partial(
-                            parse_file,
-                            found.abs_path,
-                            found.rel_path,
-                            config.large_file_bytes,
-                            suffixes,
-                            ctx.check_cancelled,
-                            budget,
+            waiting = iter(sorted(to_parse, key=lambda f: f.size, reverse=True))
+            running: set[asyncio.Future[FileRecords]] = set()
+
+            def submit() -> None:
+                # Only a window of tasks is handed to the pool at a time. With every file
+                # queued up front, a cache write or any other job would wait behind all
+                # of them, and a cancel would have thousands of queued tasks to unwind.
+                for found in itertools.islice(waiting, _PARSE_WINDOW - len(running)):
+                    running.add(
+                        asyncio.ensure_future(
+                            ctx.run_blocking(
+                                partial(
+                                    parse_file,
+                                    found.abs_path,
+                                    found.rel_path,
+                                    config.large_file_bytes,
+                                    suffixes,
+                                    ctx.check_cancelled,
+                                    budget,
+                                )
+                            )
                         )
                     )
-                )
-                for found in sorted(to_parse, key=lambda f: f.size, reverse=True)
-            ]
+
             last_flush = time.perf_counter()
             try:
-                for next_done in asyncio.as_completed(tasks):
-                    result = await next_done
-                    records[result.rel_path] = result
-                    unsaved.append(result)
-                    done += 1
-                    ctx.progress(done, total, result.rel_path)
+                submit()
+                while running:
+                    finished, running = await asyncio.wait(
+                        running, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in finished:
+                        result = task.result()
+                        records[result.rel_path] = result
+                        unsaved.append(result)
+                        done += 1
+                        ctx.progress(done, total, result.rel_path)
                     ctx.check_cancelled()
+                    submit()
                     now = time.perf_counter()
                     if len(unsaved) >= _FLUSH_COUNT or now - last_flush >= _FLUSH_SECONDS:
                         await flush()
@@ -279,9 +297,9 @@ class ArxmlReader:
             except BaseException:
                 # Cancelled or failed: stop what has not started and collect the rest so
                 # that no task is left with an unretrieved exception.
-                for task in tasks:
+                for task in running:
                     task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*running, return_exceptions=True)
                 raise
         await flush(obsolete)
         return cache, write_seconds
