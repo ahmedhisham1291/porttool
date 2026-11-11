@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import resource
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -194,7 +195,8 @@ def test_schema_location_and_root_tag_are_made_safe_only_when_anonymizing() -> N
     assert safe_schema_location(plain, location) == location
     shown = safe_schema_location(anonymous, location)
     assert shown is not None and shown.endswith("/AUTOSAR_4-2-2.xsd") and "Secret" not in shown
-    assert safe_schema_location(anonymous, "http://x.example/s Custom.xsd").count("N") == 2
+    custom = safe_schema_location(anonymous, "http://x.example/s Custom.xsd") or ""
+    assert custom.count("N") == 2 and "Custom" not in custom
     tag = '<DCF NAME="SecretEcu" VERSION="4.2">'
     assert safe_start_tag(plain, tag) == tag
     hidden = safe_start_tag(anonymous, tag)
@@ -231,7 +233,7 @@ def test_scanner_keeps_partial_facts_of_a_truncated_file_and_reports_read_errors
     assert facts.problem is not None and facts.problem.kind == "malformed"
     assert facts.tag_counts["P-PORT-PROTOTYPE"] == 1 and facts.uuid_count >= 2
 
-    def failing():  # type: ignore[no-untyped-def]
+    def failing() -> Iterator[bytes]:
         yield whole[:5000]
         raise OSError("device not ready")
 
