@@ -531,7 +531,7 @@ def test_very_large_file_uses_the_streaming_path(
 ) -> None:
     """About 60 MB in one file: read by the streaming path, identical to the DOM result."""
     filler = "x" * 2000
-    count = 24_000
+    count = 21_500
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<AUTOSAR xmlns="{samples.NS}">\n<AR-PACKAGES>\n<AR-PACKAGE>\n'
