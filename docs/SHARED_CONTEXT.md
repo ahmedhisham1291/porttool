@@ -138,3 +138,27 @@ public API, how to run the tests, measured timings, open questions.
   Until then every DaVinci-specific behaviour is provisional and marked PENDING-DISCOVERY.
 - Dependencies allowed at runtime: lxml, openpyxl, XlsxWriter, pydantic, click, psutil,
   plus the standard library. Nothing else.
+
+## Wiring between packages (fixed names; do not change them)
+- `porttool.reader.ArxmlReader()` implements `Reader`.
+- `porttool.workbook.XlsxWorkbookIO()` implements `WorkbookIO`.
+- `porttool.validator.ChangeValidator()` implements `Validator`.
+- `porttool.writer.ArxmlWriter()` implements `Writer` (no required constructor arguments).
+- `porttool.davinci.DaVinciToolRunner(config)` implements `DaVinciRunner`;
+  `porttool.davinci.davinci_gui_findings(config)` returns Findings when DaVinci Developer or
+  Configurator seems to have the workspace or project open.
+- `porttool.pipeline.build_service()` returns the `AppService` implementation; it creates
+  the Engine and wires all of the above.
+- `porttool.gui.serve(service, ...)` starts the local web interface for an `AppService`.
+- Package settings live in their own table of porttool.toml and are read with
+  `config.extra("<table>")`: `[davinci]`, `[writer]`, `[pipeline]`, `[gui]`.
+- The root CLI (`porttool/cli.py`) finds every `porttool/<package>/cli.py` that defines
+  `register_cli(group)`.
+
+## Safe defaults for an unseen project
+- DaVinci steps are OFF by default: `[pipeline] davinci_steps = []`. Out of the box, apply
+  edits the workspace ARXML on a new git branch, verifies by reloading, commits, and stops.
+  The owner enables "check", "script", "validate" and "generate" one by one after
+  `porttool davinci doctor` and `porttool discover run` confirmed the command lines.
+- Command lines of the Vector tools are templates in `[davinci.commands]`. The built-in
+  defaults are guesses and are labelled UNVERIFIED everywhere they are shown.

@@ -7,7 +7,7 @@ and receives a ``JobContext``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeVar
@@ -210,3 +210,80 @@ class Pipeline(Protocol):
     async def apply(self, change_set: ChangeSet, ctx: JobContext) -> ApplyReport: ...
 
     async def rollback(self, ctx: JobContext) -> ApplyReport: ...
+
+
+# ---- application service (what the CLI and the GUI call)
+
+
+@dataclass(frozen=True, slots=True)
+class JobView:
+    """Thread-safe snapshot of one background job, ready to be turned into JSON."""
+
+    id: str
+    name: str  # "load", "export", "dry-run", "apply", "rollback", "doctor"
+    state: str  # "queued", "running", "done", "failed", "cancelled"
+    done: int = 0
+    total: int = 0
+    message: str = ""
+    log_tail: tuple[str, ...] = ()  # last lines of tool output and step messages
+    error: str | None = None  # user message when state is "failed"
+    summary: Mapping[str, object] | None = None  # small JSON-able result when "done"
+
+
+class AppService(Protocol):
+    """The one object the command line and the GUI talk to.
+
+    Thread-safe. No method blocks: every ``start_*`` submits an engine job and returns its
+    id at once. Poll ``job(id)`` for progress. Results stay available through the
+    ``last_*`` accessors. Implemented by ``porttool.pipeline.build_service()``.
+    """
+
+    def open_repo(self, repo_root: Path, config_file: Path | None = None) -> tuple[Finding, ...]:
+        """Load porttool.toml of this repo. Raises ConfigError if it cannot be used."""
+        ...
+
+    def config(self) -> ProjectConfig | None: ...
+
+    def model(self) -> Model | None: ...
+
+    def model_is_stale(self) -> bool: ...
+
+    def recovery_needed(self) -> bool:
+        """True when the journal of a crashed apply exists: only rollback is allowed."""
+        ...
+
+    def start_load(self) -> str: ...
+
+    def start_export(self, target: Path) -> str: ...
+
+    def start_dry_run(self, workbooks: Sequence[Path]) -> str:
+        """Import the workbooks, validate, plan the write. Changes nothing in the repo."""
+        ...
+
+    def start_dry_run_rows(self, rows: Sequence[RawRequestRow]) -> str:
+        """Same as start_dry_run, for requests entered in the GUI instead of Excel."""
+        ...
+
+    def last_validation(self) -> ValidationOutcome | None: ...
+
+    def last_plan(self) -> WritePlan | None: ...
+
+    def start_apply(self) -> str:
+        """Apply the change set of the last dry run (if the model is not stale)."""
+        ...
+
+    def last_report(self) -> ApplyReport | None: ...
+
+    def start_rollback(self) -> str: ...
+
+    def start_doctor(self) -> str: ...
+
+    def job(self, job_id: str) -> JobView | None: ...
+
+    def jobs(self) -> tuple[JobView, ...]: ...
+
+    def cancel(self, job_id: str) -> bool: ...
+
+    def close(self) -> None:
+        """Cancel running jobs and stop the engine."""
+        ...
