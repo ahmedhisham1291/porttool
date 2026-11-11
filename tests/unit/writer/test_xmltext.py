@@ -19,7 +19,7 @@ FIXTURE_FILES = {
 TRICKY = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     "<!-- a comment with <PORTS> and </PORTS> inside -->\n"
-    '<?pi some <instruction> ?>\n'
+    "<?pi some <instruction> ?>\n"
     '<AUTOSAR xmlns="http://autosar.org/schema/r4.0" note="a > b" other=\'x > "y"\'>\n'
     "  <AR-PACKAGES>\n"
     "    <AR-PACKAGE>\n"
@@ -203,15 +203,7 @@ def _insert_all_ways(text: str) -> str:
 
 def test_insertions_in_every_layout_of_the_container() -> None:
     text = (
-        "<A>\n"
-        "  <B>\n"
-        "    <X/>\n"
-        "    <!-- last -->\n"
-        "  </B>\n"
-        "  <C></C>\n"
-        "  <D/>\n"
-        "  <E><X/></E>\n"
-        "</A>\n"
+        "<A>\n  <B>\n    <X/>\n    <!-- last -->\n  </B>\n  <C></C>\n  <D/>\n  <E><X/></E>\n</A>\n"
     )
     assert _insert_all_ways(text) == (
         "<A>\n"

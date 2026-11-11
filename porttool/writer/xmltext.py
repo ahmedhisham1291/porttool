@@ -184,7 +184,7 @@ def build_index(text: str) -> Node:
         if group is None:
             continue
         if group == 4:
-            raise XmlIndexError(f"\"<\" at offset {match.start()} does not start a complete tag")
+            raise XmlIndexError(f'"<" at offset {match.start()} does not start a complete tag')
         if group == 1:
             if current is top or current.raw != match.group(1):
                 raise XmlIndexError(

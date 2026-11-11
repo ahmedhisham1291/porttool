@@ -116,6 +116,7 @@ class WriterSettings:
             values[key] = value
         for key, allowed in (("new_object_placement", PLACEMENTS), ("uuid", UUID_MODES)):
             if key in values and values[key] not in allowed:
-                warn(f"{key} must be one of {', '.join(allowed)}; using {getattr(defaults, key)!r}.")
+                default = getattr(defaults, key)
+                warn(f"{key} must be one of {', '.join(allowed)}; using {default!r}.")
                 del values[key]
         return cls(**values), tuple(findings)  # type: ignore[arg-type]
