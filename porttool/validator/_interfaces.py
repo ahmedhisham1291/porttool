@@ -150,6 +150,10 @@ def _must_be_empty(req: Req, kind: InterfaceKind, *keys: str) -> None:
 
 
 def _mode_group(world: World, req: Req, interface_name: str) -> str | None:
+    # PENDING-DISCOVERY: AddInterface has no mode group field and the model has no list of
+    # mode declaration groups. A new mode-switch interface is therefore emitted with ONE
+    # ElementSpec whose name is the mode group prototype and whose type_path is the path of
+    # a mode declaration group that an existing mode-switch interface already uses.
     text = req.cell("data_type")
     if not text:
         blank_required(

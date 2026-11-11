@@ -48,6 +48,8 @@ def base_range(base: BaseType) -> BaseRange | None:
     bits = base.size_bits
     if bits is None or bits <= 0:
         return None
+    # PENDING-DISCOVERY: encoding texts as in AUTOSAR BASE-TYPE-ENCODING (2C, NONE, IEEE754,
+    # BOOLEAN). If the reader delivers other spellings, the range is treated as unknown.
     encoding = (base.encoding or "").strip().upper().replace("-", "")
     if encoding == "BOOLEAN":
         return BaseRange(0, 1, integral=True, signed=False, span=None)
@@ -159,6 +161,8 @@ def info_from_model(model: Model, path: str, _depth: int = 0) -> TypeInfo | None
     if data_type is None:
         return None
     if data_type.category is DataTypeCategory.TYPE_REFERENCE:
+        # PENDING-DISCOVERY: the contract has no field for the referenced type; this assumes
+        # the reader puts it into element_type_paths[0]. Otherwise the type counts as unknown.
         if _depth < _MAX_REFERENCE_DEPTH and data_type.element_type_paths:
             target = info_from_model(model, data_type.element_type_paths[0], _depth + 1)
             if target is not None:
