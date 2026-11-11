@@ -55,16 +55,18 @@ code paths and no platform abstraction layers.
 | porttool/writer | in-place ARXML edits, delta ARXML | Agent 5 |
 | porttool/davinci | Vector CLI adapters, Groovy script task | Agent 6 |
 | porttool/pipeline | apply transaction, git, recovery, report | Agent 7 |
-| porttool/gui | PySide6 application | Agent 8 |
+| porttool/gui | local web interface: HTTP server on 127.0.0.1 plus HTML/JS, opened in the default browser | Agent 8 |
+| porttool/discovery | `porttool discover`: self-service study of the real repo on the Windows laptop | Agent 0 |
 | tests/integration, tests/bench, tests/soak | cross-package tests and benchmarks | Agent 9 |
 | packaging, docs/user | build, package, user guide | Agent 10 |
 
 Packages talk only through the contracts in porttool/core. No package imports another
-package's internals. Each package exposes `register_cli(app)`, so every feature is also
-a command-line command.
+package's internals. Each package exposes `register_cli(group)` for a click group, so every feature is also
+a command-line command. The CLI uses click (not Typer).
 
 ## Concurrency model (mandatory)
-- Three kinds of threads. GUI thread: Qt only, never blocked longer than 50 ms. Engine
+- Three kinds of threads. UI: the browser page; HTTP request handlers never do long
+  work, they submit an engine job and return its id within 50 ms. Engine
   thread: one asyncio event loop that orchestrates every job. Worker threads: one
   ThreadPoolExecutor for parsing, hashing, Excel and ARXML writing.
 - asyncio does not make CPU work parallel. Never parse, and never loop over the model,
@@ -95,8 +97,8 @@ a command-line command.
   or a locked file returns a typed `Finding` with a code, a message for the user and
   the affected object.
 - Unexpected problems raise a subclass of `PortToolError` from porttool/core/errors.
-- Catch broad exceptions only at four boundaries: CLI entry, engine job, GUI slot,
-  thread worker. There, log the traceback, show a clear message with the log path, and
+- Catch broad exceptions only at four boundaries: CLI entry, engine job, HTTP request
+  handler, thread worker. There, log the traceback, show a clear message with the log path, and
   keep the application alive.
 - No silent failure: no empty except, no swallowed error.
 - Every file write is atomic: write a temporary file in the same folder, flush, then
@@ -120,3 +122,19 @@ a command-line command.
 ## Hand-off
 End your work with HANDOFF.md in your package folder: what is done, what is not, the
 public API, how to run the tests, measured timings, open questions.
+
+## Decisions taken on 2026-11-11 (the owner has no Claude on the Windows laptop)
+- Everything is built and tested in this sandbox, then shipped as a zip the owner runs on
+  Windows. Nobody can debug interactively on the target machine, so: prefer boring,
+  dependency-light code; make every DaVinci-specific detail configurable in porttool.toml
+  rather than hard-coded; fail with a clear message and a log path, never a traceback.
+- GUI: no Qt binding can be installed or tested here, so the GUI is a local web interface
+  served by the tool on 127.0.0.1 and opened in the default browser. Plain HTML, CSS and
+  JavaScript, no CDN, no npm build step, no external requests. It is tested here with
+  headless Chrome through Playwright.
+- CLI: click (installed here, so the CLI is tested). Not Typer.
+- Discovery: there is no Agent 0 run on the real repo. Instead `porttool discover`
+  gathers the same facts on the Windows laptop and writes a report the owner sends back.
+  Until then every DaVinci-specific behaviour is provisional and marked PENDING-DISCOVERY.
+- Dependencies allowed at runtime: lxml, openpyxl, XlsxWriter, pydantic, click, psutil,
+  plus the standard library. Nothing else.

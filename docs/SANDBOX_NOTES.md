@@ -6,10 +6,14 @@ and cannot verify here.
 
 ## The sandbox
 - Linux container, Python 3.13, no network. Never run pip, never try to install anything.
-- Installed: lxml 6.1, openpyxl 3.1.5, XlsxWriter 3.2.9, pydantic 2.13, pytest 9, mypy,
-  ruff, psutil, git.
-- Not installed: typer, PySide6, pytest-qt, hypothesis, pytest-cov, nox. Do not import
-  them in code that your tests execute.
+- Installed: lxml 6.1, openpyxl 3.1.5, XlsxWriter 3.2.9, pydantic 2.13, click, pytest 9,
+  mypy, ruff, psutil, PyYAML, jinja2, git, Node 22, Google Chrome (/usr/bin/google-chrome)
+  and Playwright for Python (use the system Chrome: channel="chrome" or executable_path).
+- Only 2 CPU cores and 7 GB RAM, shared with other agents: timings measured here are
+  pessimistic and noisy. Report them as measured, with that caveat.
+- Not installed: typer, PySide6 or any Qt binding, tkinter, hypothesis, pytest-cov,
+  coverage, nox, PyInstaller. Do not use them. Runtime dependencies are limited to lxml,
+  openpyxl, XlsxWriter, pydantic, click, psutil and the standard library.
 - No Windows, no DaVinci tools, no real ECU repo, and docs/discovery.md does not exist yet.
 
 ## What that means for your code
@@ -26,9 +30,10 @@ and cannot verify here.
   lists files, one-file-per-object layout, UUID style, package conventions) goes behind
   one small seam with a provisional implementation. Mark each assumption with a
   `PENDING-DISCOVERY:` comment and list it in HANDOFF.md.
-- CLI: typer is missing here. Put the Typer wiring in a thin `cli.py` that only parses
-  arguments and calls tested functions, mark it `# pragma: no cover`, and say in
-  HANDOFF.md that it is untested.
+- CLI: use click. Each package has a `cli.py` with `register_cli(group: click.Group)`.
+  Test commands with `click.testing.CliRunner`. Keep commands thin: parse arguments, call
+  tested functions, print results; exit code 0 on success, 1 on findings of severity
+  error, 2 on a PortToolError.
 - Coverage: pytest-cov is missing. Use the stdlib if you want a number
   (`python -m trace --count` is acceptable), or state plainly that coverage was not
   measured. Do not invent a percentage.
