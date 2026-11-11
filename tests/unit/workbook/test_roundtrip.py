@@ -6,12 +6,18 @@ from pathlib import Path
 from typing import Any
 
 from porttool.core.config import ProjectConfig
-from porttool.core.models import Model
+from porttool.core.models import Model, Port, PortDirection
 from porttool.core.results import RawRequestRow, RowRef
 from porttool.core.sheets import COLUMNS, REQUEST_SHEETS, Sheet, WorkbookMeta
 from porttool.workbook import XlsxWorkbookIO
 from porttool.workbook.rows import build_all_rows, build_labels
-from tests.unit.workbook.helpers import column_of, edit, first_blank_row, set_cells
+from tests.unit.workbook.helpers import (
+    column_of,
+    edit,
+    first_blank_row,
+    make_meta,
+    set_cells,
+)
 
 #: What a team types into the first blank row of each request sheet.
 NEW_ROWS: dict[Sheet, dict[str, Any]] = {
@@ -178,3 +184,36 @@ def test_export_of_an_imported_and_reexported_model_keeps_row_ids(
     again = tmp_path / "again.xlsx"
     assert XlsxWorkbookIO().export(model, config, again, meta) == ()
     assert again.read_bytes() == exported.read_bytes()
+
+
+def test_non_ascii_names_and_leading_formula_characters_survive_the_round_trip(
+    io: XlsxWorkbookIO, tmp_path: Path, config: ProjectConfig
+) -> None:
+    names = ["=cmd|' /C calc'!A0", "+1+1", "-2+3", "@SUM(A1)", "Größe_Öl", "速度センサ", "Плата"]
+    model = Model(
+        ports=[
+            Port(
+                path=f"/Types/Swc/Port{index}",
+                name=name,
+                swc_path="/Types/Swc",
+                direction=PortDirection.P,
+                interface_path=None,
+            )
+            for index, name in enumerate(names)
+        ]
+    )
+    meta = make_meta(model)
+    target = tmp_path / "Anfragen Größe.xlsx"
+    assert io.export(model, config, target, meta) == ()
+
+    def change(workbook: Any) -> None:
+        for row in range(2, 2 + len(names)):
+            set_cells(workbook["Ports"], Sheet.PORTS, row, action="DELETE", requester="Jörg 李")
+
+    path = edit(target, tmp_path / "bearbeitet Größe.xlsx", change)
+    imported = io.import_rows([path], meta)
+    assert imported.findings == ()
+    # The rows are sorted by port name, so compare without regard to the order.
+    assert sorted(row.values["port"] for row in imported.rows) == sorted(names)
+    assert {row.requester for row in imported.rows} == {"Jörg 李"}
+    assert {row.row.file for row in imported.rows} == {str(path)}
