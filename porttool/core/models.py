@@ -420,7 +420,10 @@ class Model:
         "files",
         "findings",
         "baseline_commit",
+        "autosar_schema",
         "_components_by_name",
+        "_prototype_by_composition_name",
+        "_triggers_by_port",
         "_ports_by_swc",
         "_port_by_swc_name",
         "_ports_by_interface",
@@ -461,6 +464,7 @@ class Model:
         files: Iterable[SourceFile] = (),
         findings: Iterable[Finding] = (),
         baseline_commit: str | None = None,
+        autosar_schema: str | None = None,
     ) -> None:
         self.components: Mapping[str, Component] = _by_path(components)
         self.ports: Mapping[str, Port] = _by_path(ports)
@@ -485,6 +489,8 @@ class Model:
         self.files: Mapping[str, SourceFile] = MappingProxyType({f.rel_path: f for f in files})
         self.findings: tuple[Finding, ...] = tuple(findings)
         self.baseline_commit: str | None = baseline_commit
+        #: Schema version used by most loaded files, e.g. "AUTOSAR_4-2-2.xsd" (reader-defined text).
+        self.autosar_schema: str | None = autosar_schema
 
         by_name: dict[str, list[Component]] = defaultdict(list)
         for component in self.components.values():
@@ -524,19 +530,28 @@ class Model:
 
         triggers_by_runnable: dict[str, list[Trigger]] = defaultdict(list)
         triggers_by_swc: dict[str, list[Trigger]] = defaultdict(list)
+        triggers_by_port: dict[str, list[Trigger]] = defaultdict(list)
         for trigger in self.triggers.values():
             triggers_by_swc[trigger.swc_path].append(trigger)
             if trigger.runnable_path is not None:
                 triggers_by_runnable[trigger.runnable_path].append(trigger)
+            if trigger.port_path is not None:
+                triggers_by_port[trigger.port_path].append(trigger)
         self._triggers_by_runnable = _freeze(triggers_by_runnable)
         self._triggers_by_swc = _freeze(triggers_by_swc)
+        self._triggers_by_port = _freeze(triggers_by_port)
 
         protos_by_composition: dict[str, list[ComponentPrototype]] = defaultdict(list)
         protos_by_type: dict[str, list[ComponentPrototype]] = defaultdict(list)
+        proto_by_name: dict[tuple[str, str], ComponentPrototype] = {}
         for prototype in self.prototypes.values():
             protos_by_composition[prototype.composition_path].append(prototype)
+            proto_by_name[(prototype.composition_path, prototype.name)] = prototype
             if prototype.type_path is not None:
                 protos_by_type[prototype.type_path].append(prototype)
+        self._prototype_by_composition_name: Mapping[tuple[str, str], ComponentPrototype] = (
+            MappingProxyType(proto_by_name)
+        )
         self._prototypes_by_composition = _freeze(protos_by_composition)
         self._prototypes_by_type = _freeze(protos_by_type)
 
@@ -594,6 +609,9 @@ class Model:
     def triggers_in(self, swc_path: str) -> tuple[Trigger, ...]:
         return self._triggers_by_swc.get(swc_path, ())
 
+    def triggers_at_port(self, port_path: str) -> tuple[Trigger, ...]:
+        return self._triggers_by_port.get(port_path, ())
+
     def task_of(self, event_path: str) -> TaskMapping | None:
         return self.task_mappings.get(event_path)
 
@@ -601,6 +619,9 @@ class Model:
 
     def prototypes_in(self, composition_path: str) -> tuple[ComponentPrototype, ...]:
         return self._prototypes_by_composition.get(composition_path, ())
+
+    def find_prototype(self, composition_path: str, name: str) -> ComponentPrototype | None:
+        return self._prototype_by_composition_name.get((composition_path, name))
 
     def prototypes_of_type(self, type_path: str) -> tuple[ComponentPrototype, ...]:
         return self._prototypes_by_type.get(type_path, ())

@@ -42,8 +42,14 @@ Not done / limits (by design or for lack of facts):
 
 ```python
 from porttool.reader import (
-    ArxmlReader, ReaderOptions, LoadStats, EcucLayout,
-    load_blocking, PoolJobContext, register_cli, codes,
+    ArxmlReader,
+    ReaderOptions,
+    LoadStats,
+    EcucLayout,
+    load_blocking,
+    PoolJobContext,
+    register_cli,
+    codes,
 )
 ```
 

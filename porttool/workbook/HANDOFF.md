@@ -33,9 +33,9 @@ Not done
 ```python
 from porttool.workbook import XlsxWorkbookIO, ExportOptions, codes, register_cli
 
-io = XlsxWorkbookIO()                      # implements porttool.core.interfaces.WorkbookIO
-findings = io.export(model, config, target, meta, results=())   # -> tuple[Finding, ...]
-imported = io.import_rows(files, current)                       # -> ImportedWorkbooks
+io = XlsxWorkbookIO()  # implements porttool.core.interfaces.WorkbookIO
+findings = io.export(model, config, target, meta, results=())  # -> tuple[Finding, ...]
+imported = io.import_rows(files, current)  # -> ImportedWorkbooks
 ```
 
 - Both methods block; call them through `JobContext.run_blocking`. The object holds no

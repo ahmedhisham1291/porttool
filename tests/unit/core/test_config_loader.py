@@ -323,7 +323,7 @@ def test_unknown_keys_and_tables_are_findings(tmp_path: Path) -> None:
     repo = make_repo(
         tmp_path,
         'colour = "blue"\n' + MINIMAL + 'arxml_root = "typo"\n'
-        '[timeouts]\ngenerate = 5\n[gui]\ntheme = "dark"\n',
+        '[timeouts]\ngenerate = 5\n[colours]\ntheme = "dark"\n',
     )
     loaded = load_config(repo)
     unknown = [f for f in loaded.findings if f.code == "CFG-KEY-001"]
@@ -332,7 +332,7 @@ def test_unknown_keys_and_tables_are_findings(tmp_path: Path) -> None:
     assert all(f.file == str(repo / "porttool.toml") for f in unknown)
     text = " | ".join(f.message for f in unknown)
     assert "[paths] arxml_root " in text and "[timeouts] generate " in text
-    assert "table [gui]" in text and "setting colour" in text
+    assert "table [colours]" in text and "setting colour" in text
     assert loaded.config.timeouts == ToolTimeouts()
 
 

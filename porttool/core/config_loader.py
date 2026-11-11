@@ -71,6 +71,8 @@ _OWNER_COLUMNS = ("swc", "team", "arxml_owner", "authoring_tool", "export_folder
 _KNOWN_TOP_LEVEL = frozenset(
     {"format_version", "paths", "naming", "packages", "timeouts", "generate", "pending", "limits"}
 )
+#: Tables owned by other packages. They are passed through untouched in ProjectConfig.extras.
+PACKAGE_TABLES = ("davinci", "writer", "pipeline", "gui", "reader", "workbook", "discovery")
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,8 +338,16 @@ def load_config(
     min_free_disk_bytes = limits.integer("min_free_disk_bytes", minimum=0)
     limits.finish()
 
+    package_tables: dict[str, Mapping[str, object]] = {}
+    for key in PACKAGE_TABLES:
+        value = document.get(key)
+        if isinstance(value, dict):
+            package_tables[key] = MappingProxyType(dict(value))
+        elif value is not None:
+            problems.error(f"[{key}] must be a table.")
+
     for key in document:
-        if key not in _KNOWN_TOP_LEVEL:
+        if key not in _KNOWN_TOP_LEVEL and key not in PACKAGE_TABLES:
             kind = "table" if isinstance(document[key], dict) else "setting"
             where = f"[{key}]" if kind == "table" else key
             problems.note("CFG-KEY-001", f"Unknown {kind} {where} is ignored. Check the spelling.")
@@ -393,6 +403,8 @@ def load_config(
         extra["large_file_bytes"] = large_file_bytes
     if min_free_disk_bytes is not None:
         extra["min_free_disk_bytes"] = min_free_disk_bytes
+    if package_tables:
+        extra["extras"] = MappingProxyType(package_tables)
     if extra:
         config = dataclasses.replace(config, **extra)
     findings = (*problems.findings, *owner_findings, *locked_findings)
@@ -734,7 +746,24 @@ def render_config(config: ProjectConfig) -> str:
         f"min_free_disk_bytes = {_toml_value(config.min_free_disk_bytes)}",
         "",
     ]
+    for name in sorted(config.extras):
+        lines += _render_table(name, config.extras[name])
     return "\n".join(lines)
+
+
+def _render_table(name: str, table: Mapping[str, object]) -> list[str]:
+    """Render one package table (and its sub-tables) of ProjectConfig.extras."""
+    lines = [f"[{name}]"]
+    nested: list[tuple[str, Mapping[str, object]]] = []
+    for key, value in table.items():
+        if isinstance(value, Mapping):
+            nested.append((key, value))
+        else:
+            lines.append(f"{key} = {_toml_value(value)}")
+    lines.append("")
+    for key, value in nested:
+        lines += _render_table(f"{name}.{key}", value)
+    return lines
 
 
 def save_config(config: ProjectConfig, config_file: str | os.PathLike[str] | None = None) -> Path:

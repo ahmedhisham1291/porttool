@@ -172,6 +172,7 @@ truth.arxml_root, .arxml_files, .ecuc_file, .dcf_file, .dpa_file, .files, .repo_
 
 ```python
 from tests.fakes import fake_command, fake_env, cmd_wrapper, TOOLS
+
 subprocess.run([*fake_command("DVCfgCmd"), "any", "args"], env=fake_env(exit_code=3, stdout=["a"]))
 ```
 `fake_env` options: `exit_code`, `stdout`, `stderr` (lists of lines), `line_delay_s`,

@@ -1,7 +1,7 @@
 """Configuration types. CONTRACT FILE (types only).
 
-The loader that fills these from ``porttool.toml``, ``owners.csv``, ``naming.yaml`` and
-``locked.txt`` lives in ``porttool/core/config_loader.py`` (Agent 1).
+The loader that fills these from ``porttool.toml`` (including its ``[naming]`` table),
+``owners.csv`` and ``locked.txt`` lives in ``porttool/core/config_loader.py`` (Agent 1).
 """
 
 from __future__ import annotations
@@ -89,6 +89,13 @@ class ProjectConfig:
     pending_max_age_days: int = 14
     large_file_bytes: int = 50 * 1024 * 1024  # above this, the reader streams the file
     min_free_disk_bytes: int = 2 * 1024 * 1024 * 1024
+    #: Raw package tables of porttool.toml, read by the package that owns them:
+    #: [davinci], [writer], [pipeline], [gui], [reader], [workbook], [discovery].
+    extras: Mapping[str, Mapping[str, object]] = field(default_factory=lambda: MappingProxyType({}))
+
+    def extra(self, table: str) -> Mapping[str, object]:
+        """The raw [table] of porttool.toml, or an empty mapping."""
+        return self.extras.get(table, MappingProxyType({}))
 
     def owner_of(self, swc_name: str) -> ArxmlOwner:
         if swc_name in self.locked_swcs:

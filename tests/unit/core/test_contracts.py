@@ -151,3 +151,33 @@ def test_row_id_is_stable_and_prefixed() -> None:
     assert first.startswith("PT-") and len(first) == 15
     assert first != row_id(Sheet.PORTS, f"{CT}/SwcA/RpTorque")
     assert row_id(Sheet.INTERFACE_ELEMENTS, interface_element_key(f"{IF}/IfDiag", "ReadDtc", "Dtc"))
+
+
+def test_model_extra_lookups_and_schema() -> None:
+    model = build_sample_model()
+    prototype = model.find_prototype(COMPOSITION, "SwcB")
+    assert prototype is not None and prototype.type_path == f"{CT}/SwcB"
+    assert model.find_prototype(COMPOSITION, "Nope") is None
+    assert [t.name for t in model.triggers_at_port(f"{CT}/SwcB/RpSpeed")] == ["DRT_RunB_OnSpeed"]
+    assert model.autosar_schema is None
+
+
+def test_package_tables_pass_through_and_survive_save(tmp_path: Path) -> None:
+    from porttool.core.config_loader import load_config, save_config
+
+    (tmp_path / "Config").mkdir()
+    (tmp_path / "porttool.toml").write_text(
+        'format_version = 1\n[paths]\narxml_roots = ["Config"]\n'
+        '[davinci]\nscript_task_enabled = false\nflags = ["-a", "b c"]\n'
+        '[davinci.commands]\ncheck = ["{exe}", "--x"]\n',
+        encoding="utf-8",
+    )
+    loaded = load_config(tmp_path)
+    assert not [f for f in loaded.findings if f.code == "CFG-KEY-001"]
+    davinci = loaded.config.extra("davinci")
+    assert davinci["script_task_enabled"] is False
+    assert davinci["flags"] == ["-a", "b c"]
+    assert loaded.config.extra("gui") == {}
+    save_config(loaded.config)
+    again = load_config(tmp_path)
+    assert again.config.extra("davinci") == davinci

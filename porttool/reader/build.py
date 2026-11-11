@@ -629,6 +629,7 @@ class _Builder:
             constants=constants,
             files=self.source_files(),
             findings=self.findings,
+            autosar_schema=self.main_schema(),
         )
 
     def simple_types(
@@ -1205,6 +1206,16 @@ class _Builder:
         return list(tasks), list(mappings.values())
 
     # ---- files
+
+    def main_schema(self) -> str | None:
+        """The schema version most loaded files use, or None if no file states one."""
+        counts: dict[str, int] = {}
+        for _index, _rel, records in self.ordered:
+            if records.status == STATUS_OK and records.schema is not None:
+                counts[records.schema] = counts.get(records.schema, 0) + 1
+        if not counts:
+            return None
+        return min(counts, key=lambda schema: (-counts[schema], schema))
 
     def report_schemas(self) -> None:
         by_schema: dict[str, list[str]] = {}

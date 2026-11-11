@@ -45,7 +45,7 @@ branch.
 from porttool.validator import ChangeValidator, validate, register_cli, codes
 from porttool.validator import ALL_CODES, CODES, describe, format_code_table, request_id_of
 
-outcome = validate(model, config, rows, pending, now_utc)          # pure function
+outcome = validate(model, config, rows, pending, now_utc)  # pure function
 outcome = ChangeValidator().validate(model, config, rows, pending, now_utc)
 ```
 
