@@ -865,3 +865,32 @@ def check_invariants(
 
 
 Tweak = Callable[[ProjectConfig], ProjectConfig]
+
+
+def extend_model(model: Model, *, ports: Sequence[Port] = (), without_ports: Sequence[str] = ()) -> Model:
+    """A new model like ``model`` with extra ports, or without some ports (by path)."""
+    kept = [port for port in model.ports.values() if port.path not in without_ports]
+    return Model(
+        components=model.components.values(),
+        ports=[*kept, *ports],
+        interfaces=model.interfaces.values(),
+        runnables=model.runnables.values(),
+        access_points=model.access_points.values(),
+        triggers=model.triggers.values(),
+        task_mappings=model.task_mappings.values(),
+        tasks=model.tasks,
+        compositions=model.compositions.values(),
+        prototypes=model.prototypes.values(),
+        connectors=model.connectors.values(),
+        data_types=model.data_types.values(),
+        base_types=model.base_types.values(),
+        compu_methods=model.compu_methods.values(),
+        constraints=model.constraints.values(),
+        units=model.units.values(),
+        files=model.files.values(),
+        baseline_commit=model.baseline_commit,
+    )
+
+
+def new_port(swc: str, name: str, direction: str, interface: str) -> Port:
+    return _port(swc, name, direction, interface)
