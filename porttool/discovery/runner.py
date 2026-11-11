@@ -60,6 +60,7 @@ from porttool.discovery.tools import (
     skipped_tools_section,
 )
 from porttool.discovery.workspace import WorkspaceResult, build_workspace, normalize_path
+from porttool.discovery.xmlfeed import XmlProblem
 
 FORMAT_VERSION = 1
 DEFAULT_OUT_NAME = "porttool_discovery"
@@ -284,7 +285,12 @@ def _scan_all(walk: WalkResult, ctx: Context) -> list[ArxmlFacts]:
     reported = 0
     last = time.monotonic()
     for number, entry in enumerate(entries, start=1):
-        item = scan_arxml(entry.rel, entry.size, read_chunks(entry.path))
+        try:
+            item = scan_arxml(entry.rel, entry.size, read_chunks(entry.path))
+        except Exception as error:  # noqa: BLE001 - one file must never stop the inventory
+            item = ArxmlFacts(rel=entry.rel, size=entry.size)
+            kind = "unreadable" if isinstance(error, OSError) else "failed"
+            item.problem = XmlProblem(kind, type(error).__name__)
         facts.append(item)
         done_bytes += entry.size
         problem = item.problem
@@ -296,6 +302,7 @@ def _scan_all(walk: WalkResult, ctx: Context) -> list[ArxmlFacts]:
                     "malformed": "DISC-XML-MALFORMED",
                     "encoding": "DISC-XML-ENCODING",
                     "unreadable": "DISC-FILE-UNREADABLE",
+                    "failed": "DISC-FILE-FAILED",
                 }.get(problem.kind, "DISC-XML-MALFORMED")
                 ctx.warning(code, f"ARXML file skipped or read in part: {problem.describe()}.",
                             file=entry.rel)  # fmt: skip

@@ -20,6 +20,7 @@ from typing import Any
 
 from porttool.discovery.context import Context
 from porttool.discovery.fsio import FileEntry, io_path, iso_utc
+from porttool.discovery.names import Names
 from porttool.discovery.proc import ProcResult, decode_output, run_captured
 
 DEVELOPER_TOOLS: tuple[str, ...] = ("DVImEx", "DVWspChecker", "DVSwcGen")
@@ -399,6 +400,15 @@ def redact(text: str, pairs: Sequence[tuple[str, str]]) -> str:
     return text
 
 
+def shown_tool_path(path: str, repo_root: str, names: Names) -> str:
+    """Path of an executable for the report: never the absolute path of the repo."""
+    root = repo_root.replace("\\", "/").rstrip("/")
+    unified = path.replace("\\", "/")
+    if unified.casefold().startswith(root.casefold() + "/"):
+        return "<repo>/" + names.tool_path(unified[len(root) + 1 :])
+    return names.tool_path(path)
+
+
 def build_tools(
     search: ToolSearch,
     ctx: Context,
@@ -423,7 +433,7 @@ def build_tools(
         number = probed.get(executable.tool, 0) + 1
         probed[executable.tool] = number
         label = executable.tool if number == 1 else f"{executable.tool}-{number}"
-        shown_path = names.tool_path(executable.path)
+        shown_path = shown_tool_path(executable.path, repo_root, names)
         version = None
         try:
             version = read_file_version(executable.path)

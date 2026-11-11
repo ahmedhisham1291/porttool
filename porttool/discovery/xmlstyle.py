@@ -57,7 +57,8 @@ def sniff_encoding(head: bytes) -> EncodingInfo:
     if codec is not None and not codec.startswith("utf-8"):
         text = head[:4096].decode(codec, errors="replace")
     else:
-        text = head[:4096].decode("latin-1")
+        body = head[len(codecs.BOM_UTF8) :] if bom == "utf-8" else head
+        text = body[:4096].decode("latin-1")
     declared_match = _ENCODING_RE.search(_first_declaration(text) or "")
     declared = declared_match.group(1) if declared_match else None
     if codec is None:
