@@ -449,7 +449,7 @@ def _plan_swcs(spec: GeneratorSpec, ids: _Ids, rng: random.Random) -> list[SwcPl
 
 
 def _role_counts(spec: GeneratorSpec) -> tuple[int, int, int, int]:
-    """(connected providers, unconnected providers, connected requesters, unconnected requesters)."""
+    """Ports per role: connected providers, other providers, connected requesters, the rest."""
     total = spec.total_ports
     connectors = spec.connector_count
     spare = total - connectors  # ports that are providers or unconnected requesters
@@ -632,9 +632,7 @@ def build_plan(spec: GeneratorSpec) -> Plan:
     _plan_ports(spec, swcs, ids, rng)
     provider_count = sum(1 for swc in swcs for port in swc.ports if port.provider)
     interface_count = spec.interface_count or max(2, provider_count // 2)
-    interfaces = _plan_interfaces(
-        interface_count, spec.client_server_share, data_types, ids, rng
-    )
+    interfaces = _plan_interfaces(interface_count, spec.client_server_share, data_types, ids, rng)
     pairs = _plan_connections(swcs, interfaces, ids, rng)
     _name_ports(swcs)
     for swc in swcs:
