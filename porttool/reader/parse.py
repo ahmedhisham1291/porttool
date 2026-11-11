@@ -334,7 +334,9 @@ def _extract_dom(
             sha256=sha256,
             stable=stable,
         )
-    out = Collector(suffixes, check_variation=_VARIATION_TOKEN in data)
+    # Cheap skip of the variation-point scan. The token cannot be found by a byte search
+    # in UTF-16 or UTF-32 (a NUL among the first bytes), so those files are always scanned.
+    out = Collector(suffixes, check_variation=_VARIATION_TOKEN in data or b"\x00" in data[:4])
     doctype = _doctype_finding(root)
     if doctype is not None:
         out.findings.append(doctype)
@@ -424,15 +426,9 @@ def _extract_stream(
                 check_cancelled()
         root = parser.close()
     except etree.LxmlError as error:
-        return empty_records(
-            rel_path,
-            size,
-            mtime_ns,
-            STATUS_MALFORMED,
-            (_malformed(error),),
-            sha256=digest.hexdigest() if read == size else None,
-            stable=read == size,
-        )
+        # The parser stopped before the end of the file, so the read count proves
+        # nothing; the caller compares the file's fingerprint before and after.
+        return empty_records(rel_path, size, mtime_ns, STATUS_MALFORMED, (_malformed(error),))
     stable = read == size
     sha256 = digest.hexdigest()
     unsupported = _unsupported_root(root)
