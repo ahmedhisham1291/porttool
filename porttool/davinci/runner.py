@@ -111,7 +111,12 @@ class PreparedCommand:
 
     @property
     def runnable(self) -> bool:
-        return self.rendered is not None and self.rendered.ok
+        """True when the command may be started: it rendered and no finding is an error."""
+        return (
+            self.rendered is not None
+            and self.rendered.ok
+            and not any(finding.severity is Severity.ERROR for finding in self.findings)
+        )
 
 
 def _hex_code(code: int) -> str:
@@ -251,9 +256,7 @@ class DaVinciToolRunner:
                         object_path=f"davinci.commands.{action}",
                     )
                 )
-        if any(finding.severity is Severity.ERROR for finding in findings):
-            return PreparedCommand(action, tool, None, tuple(findings))
-        return PreparedCommand(action, tool, rendered, tuple(findings))
+        return PreparedCommand(action, tool, rendered if rendered.argv else None, tuple(findings))
 
     def _missing_path(self, action: str, name: str, value: str, kind: str) -> Finding:
         hints = {

@@ -294,14 +294,18 @@ def test_log_folder_that_cannot_be_created_is_a_finding(tmp_path: Path) -> None:
 def test_default_log_folder_is_below_the_porttool_logs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
     from porttool.core.config import ProjectConfig
+    from porttool.davinci import runner as runner_module
 
-    runner = DaVinciToolRunner(ProjectConfig(repo_root=tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(runner_module, "current_log_file", lambda: None)
+    config = ProjectConfig(repo_root=tmp_path)
+    runner = DaVinciToolRunner(config)
     assert runner.log_dir() == tmp_path / "appdata" / "PortTool" / "logs" / "tools"
-    assert (
-        DaVinciToolRunner(ProjectConfig(repo_root=tmp_path), log_dir=tmp_path).log_dir() == tmp_path
-    )
+    # With --log-dir the tool logs follow the application log.
+    monkeypatch.setattr(runner_module, "current_log_file", lambda: tmp_path / "x" / "app.log")
+    assert runner.log_dir() == tmp_path / "x" / "tools"
+    assert DaVinciToolRunner(config, log_dir=tmp_path).log_dir() == tmp_path
 
 
 def test_builtin_templates_run_a_found_executable_and_say_unverified(tmp_path: Path) -> None:
