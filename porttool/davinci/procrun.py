@@ -245,7 +245,9 @@ def orphans_of(
     been given to a new, unrelated process.
     """
     found: list[Any] = []
-    listing = psutil.process_iter(["pid", "ppid", "create_time"]) if processes is None else processes
+    listing = (
+        psutil.process_iter(["pid", "ppid", "create_time"]) if processes is None else processes
+    )
     for process in listing:
         try:
             if process.ppid() != pid:
@@ -358,7 +360,9 @@ def kill_family(family: Family, wait_s: float | None = None) -> KillReport:
     return KillReport(tuple(info for _, info in members), tuple(survivors))
 
 
-def kill_processes(members: list[tuple[Any, ProcessInfo]], wait_s: float | None = None) -> KillReport:
+def kill_processes(
+    members: list[tuple[Any, ProcessInfo]], wait_s: float | None = None
+) -> KillReport:
     """Kill the given processes and confirm it."""
     for process, _ in members:
         _kill(process)
@@ -707,7 +711,9 @@ async def _run_logged(
         ) from error
 
     elapsed = time.monotonic() - started
-    log.write(f"[porttool] exit code: {exit_code}; {collector.lines_total} line(s); {elapsed:.1f} s")
+    log.write(
+        f"[porttool] exit code: {exit_code}; {collector.lines_total} line(s); {elapsed:.1f} s"
+    )
     if leftover:
         verb = "were stopped" if leftover_killed else "were left running"
         names = ", ".join(str(info) for _, info in leftover)
