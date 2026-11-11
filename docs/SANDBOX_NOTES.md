@@ -35,7 +35,7 @@ and cannot verify here.
 
 ## Contracts
 - porttool/core was written by the orchestrator as v0. These files are frozen for you:
-  models.py, operations.py, results.py, errors.py, interfaces.py, sheets.py, pending.py,
+  models.py, operations.py, results.py, errors.py, interfaces.py, sheets.py, pending.py, rowid.py,
   config.py. Read them before you write anything.
 - If a contract is missing something, do NOT edit it. Work around it inside your own
   package and list the change you want in HANDOFF.md under "Contract change requests".

@@ -141,3 +141,13 @@ def test_sample_config_owner_lookup(tmp_path: Path) -> None:
     assert config.owner_of("SwcM") is ArxmlOwner.MODEL
     assert config.owner_of("Unknown") is ArxmlOwner.DAVINCI
     assert config.team_of("SwcA") == "Alpha"
+
+
+def test_row_id_is_stable_and_prefixed() -> None:
+    from porttool.core.rowid import interface_element_key, row_id
+
+    first = row_id(Sheet.PORTS, f"{CT}/SwcA/PpSpeed")
+    assert first == row_id(Sheet.PORTS, f"{CT}/SwcA/PpSpeed")
+    assert first.startswith("PT-") and len(first) == 15
+    assert first != row_id(Sheet.PORTS, f"{CT}/SwcA/RpTorque")
+    assert row_id(Sheet.INTERFACE_ELEMENTS, interface_element_key(f"{IF}/IfDiag", "ReadDtc", "Dtc"))
