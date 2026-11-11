@@ -58,7 +58,7 @@ _WARNING: Final = Severity.WARNING.value
 _XSI_SCHEMA_LOCATION: Final = "{http://www.w3.org/2001/XMLSchema-instance}schemaLocation"
 _VARIATION_TOKEN: Final = b"VARIATION-POINT"
 _STREAM_CHUNK: Final = 1024 * 1024
-_STREAM_TAGS: Final = (SHORT_NAME, ELEMENTS, ECUC_CONTAINER, REFERENCE_BASE)
+_STREAM_TAGS: Final = (SHORT_NAME, ELEMENTS, ECUC_CONTAINER, REFERENCE_BASE, AR_PACKAGE)
 
 #: Attempts to get a stable read of a file that changes while it is read.
 _READ_ATTEMPTS: Final = 3
@@ -390,6 +390,13 @@ def _handle_stream_event(el: Any, out: Collector) -> None:
         path = _package_path(el)
         if path is not None:
             extract.reference_base(el, path, out)
+    elif tag == AR_PACKAGE:
+        if extract.short_name(el) is None:
+            # Same finding as the DOM walker; a package inside a nameless package is
+            # not reported again (the DOM walker never descends into one).
+            parent = _package_path(el)
+            if parent is not None:
+                out.missing_name(el, parent)
 
 
 def _extract_stream(
