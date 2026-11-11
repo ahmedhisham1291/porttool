@@ -16,6 +16,7 @@ from porttool.core.results import Severity
 from porttool.reader import codes, parse
 from porttool.reader import reader as reader_module
 from porttool.reader.discovery import Discovery
+from porttool.reader.discovery import discover as real_discover
 from tests.unit.reader import samples
 from tests.unit.reader.conftest import Repo, codes_of, findings_with
 from tests.unit.reader.samples import CT, IF, doc, package, swc
@@ -225,7 +226,6 @@ def test_one_unreadable_file_does_not_stop_the_load(any_repo: Repo) -> None:
 def test_file_deleted_during_the_load(repo: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
     samples.write_sample_repo(repo.root, ecuc=False)
     victim = repo.path(samples.F_SWC_M)
-    real_discover = reader_module.discover
 
     def discover_then_delete(config: Any, **kwargs: Any) -> Discovery:
         found = real_discover(config, **kwargs)
