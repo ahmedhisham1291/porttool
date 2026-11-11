@@ -232,6 +232,7 @@ class Document:
         self.codec = codec
         self.bom = bom
         self.created = created  # True: the file does not exist yet
+        self.hint_uuid: str | None = None  # UUID style to follow when the text has no UUID
         self.root = build_index(text)
         raw = self.root.raw
         self.prefix = raw[: len(raw) - len(self.root.tag)]  # "" or "AR:"
@@ -324,7 +325,7 @@ class Document:
         """Some UUID attribute value of the file, None if the file has none."""
         match = _UUID_ATTR.search(self.text)
         if match is None:
-            return None
+            return self.hint_uuid
         value = match.group(1)
         return value if value is not None else match.group(2)
 
@@ -385,6 +386,22 @@ class Document:
         if not parent.virtual and parent not in self._dirty:
             self._dirty.append(parent)
 
+    def package(self, path: str) -> Node | None:
+        """The AR-PACKAGE with this path (also one that was just created), or None."""
+        node = self.root
+        for name in (part for part in path.split("/") if part):
+            holder = node.child("AR-PACKAGES")
+            found = None
+            if holder is not None:
+                for child in holder.children:
+                    if child.tag == "AR-PACKAGE" and self.name_of(child) == name:
+                        found = child
+                        break
+            if found is None:
+                return None
+            node = found
+        return node if node is not self.root else None
+
     def reset(self) -> None:
         """Drop every pending insertion."""
         for parent in self._dirty:
@@ -393,7 +410,7 @@ class Document:
 
     @property
     def changed(self) -> bool:
-        return self.created or bool(self._dirty)
+        return bool(self._dirty)
 
     # ---- rendering
 

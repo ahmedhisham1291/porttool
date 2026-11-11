@@ -14,6 +14,7 @@ STATE_UNKNOWN = "WRT-STATE-002"  # file is not part of the loaded model or canno
 PARSE = "WRT-PARSE-001"  # file cannot be indexed
 LOCATE = "WRT-LOCATE-001"  # an object of the model was not found in its file
 PLACE = "WRT-PLACE-001"  # no file found for a new object
+FILE_NAME = "WRT-FILE-002"  # the name of a new object cannot be used as a file name
 FILE_COLLISION = "WRT-FILE-001"  # a new file would collide with an existing file name
 READ_ONLY = "WRT-READONLY-001"  # target file is read-only
 LOCKED = "WRT-LOCKED-001"  # target file is held open by another program

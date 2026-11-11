@@ -9,7 +9,11 @@ exactly what the apply does.
 from __future__ import annotations
 
 import hashlib
+import os
+import posixpath
+import re
 import uuid as uuidlib
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,11 +23,16 @@ from porttool.core.config import ProjectConfig
 from porttool.core.errors import RepoStateError
 from porttool.core.models import (
     AccessKind,
+    Argument,
     ArxmlOwner,
     Component,
+    DataElement,
     DataType,
+    DataTypeCategory,
+    DataTypeLevel,
     InterfaceKind,
     Model,
+    Operation,
     Port,
     PortDirection,
     PortInterface,
@@ -35,6 +44,8 @@ from porttool.core.operations import (
     APPLY_ORDER,
     AddAccessPoint,
     AddConnector,
+    AddDataType,
+    AddInterface,
     AddPort,
     AddServerRunnable,
     AddTrigger,
@@ -65,6 +76,21 @@ _EVENTS: dict[TriggerKind, str] = {
     TriggerKind.OPERATION_INVOKED: "OPERATION-INVOKED-EVENT",
     TriggerKind.INIT: "INIT-EVENT",
 }
+
+_PACKAGED = (
+    "components",
+    "interfaces",
+    "data_types",
+    "base_types",
+    "compu_methods",
+    "constraints",
+    "units",
+    "mapping_sets",
+    "constants",
+)
+_SCALAR = (DataTypeCategory.VALUE, DataTypeCategory.BOOLEAN, DataTypeCategory.ENUMERATION)
+#: Device names that Windows does not accept as a file name, whatever the extension.
+_RESERVED_FILE_NAMES = re.compile(r"(?i)(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])\Z")
 
 PLANNED = "planned"
 EXISTS = "exists"
@@ -154,6 +180,9 @@ class Session:
         #: stat of each file at the moment it was read, to detect a change before the write
         self.read_stats: dict[str, SourceFile] = {}
         self._bad: dict[str, Skip] = {}
+        self._placement: _Placement | None = None
+        #: per new file: do the AR-PACKAGE elements of its sibling file carry a UUID?
+        self._package_uuids: dict[str, bool] = {}
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -169,6 +198,7 @@ class Session:
         self._new_types: dict[str, DataType] = {}
         self._new_accesses: set[tuple[str, str, str, str]] = set()
         self._new_triggers: set[tuple[str, str, str | None, str | None, float | None]] = set()
+        self._new_paths: set[str] = set()
         self._parts_cache: dict[str, list[tuple[Document, Node]]] = {}
         self._uuid_cache: dict[int, Callable[[], str | None]] = {}
 
@@ -208,6 +238,10 @@ class Session:
                         op, skip.code, Severity.ERROR, skip.message, skip.object_path, skip.file
                     )
                 )
+            if state.status != PLANNED:
+                # a new file that was prepared for an operation that then was not planned
+                for rel_path in [r for r, d in self.docs.items() if d.created and not d.changed]:
+                    del self.docs[rel_path]
 
     def changed_docs(self) -> list[Document]:
         return [self.docs[rel] for rel in sorted(self.docs) if self.docs[rel].changed]
@@ -349,6 +383,34 @@ class Session:
                         path,
                     )
         return found
+
+    def type_dest(self, path: str) -> str:
+        """DEST value for a reference to the data type or base type ``path``."""
+        found = self._new_types.get(path) or self.model.data_types.get(path)
+        if found is not None:
+            return templates.data_type_tag(found.level, found.category)
+        if path in self.model.base_types:
+            return templates.BASE_TYPE
+        raise Skip(codes.REF_MISSING, f"Data type {path} does not exist.", path)
+
+    def data_type_dest(self, path: str, *levels: DataTypeLevel) -> str:
+        """Like ``type_dest``, for a place where only data types of ``levels`` are allowed."""
+        dest = self.type_dest(path)
+        found = self._new_types.get(path) or self.model.data_types.get(path)
+        if found is None or (levels and found.level not in levels):
+            allowed = " or ".join(level.value for level in levels) or "a"
+            raise Skip(
+                codes.REF_KIND,
+                f"{path} cannot be used here: {allowed} data type is needed.",
+                path,
+            )
+        return dest
+
+    def path_taken(self, path: str) -> bool:
+        """True if any packaged object of the model or of this change set has this path."""
+        if path in self._new_paths:
+            return True
+        return any(path in getattr(self.model, kind) for kind in _PACKAGED)
 
     def is_constant(self, path: str) -> bool:
         return path in self.model.constants
@@ -509,6 +571,132 @@ class Session:
             maker = lambda: new().lower()  # noqa: E731
         self._uuid_cache[id(container)] = maker
         return maker
+
+    # ---- placement of new packaged objects
+
+    def placement(self) -> _Placement:
+        if self._placement is None:
+            self._placement = _Placement(self.model)
+        return self._placement
+
+    def place(
+        self, kind: str, package_path: str, name: str, fallback: Document | None = None
+    ) -> Document:
+        """The file for a new object ``package_path/name``. Checks only, nothing is inserted
+        (a new file gets its empty skeleton in memory)."""
+        home = self.placement().best_file(kind, package_path)
+        if home is None and fallback is not None:
+            home = fallback.rel_path
+        if home is None:
+            raise Skip(
+                codes.PLACE,
+                f"No file was found for the new object {package_path}/{name}: the repository "
+                f"has no file with objects of this kind.",
+                f"{package_path}/{name}",
+            )
+        if self.settings.new_object_placement == "new_file":
+            return self._new_file(home, name)
+        document = self.doc(home)
+        package = document.package(package_path)
+        if package is not None:
+            self.check_free(document, package, name, f"{package_path}/{name}")
+        return document
+
+    def _new_file(self, sibling_path: str, name: str) -> Document:
+        """Empty document ``<folder of sibling>/<name>.arxml`` in the style of the sibling."""
+        folder = posixpath.dirname(sibling_path)
+        rel_path = f"{folder}/{name}.arxml" if folder else f"{name}.arxml"
+        if _RESERVED_FILE_NAMES.match(name):
+            raise Skip(
+                codes.FILE_NAME,
+                f"{name}.arxml cannot be created: Windows reserves the file name {name}.",
+                file=rel_path,
+            )
+        wanted = rel_path.casefold()
+        known = [*self.model.files, *self.docs]
+        try:
+            known.extend(
+                f"{folder}/{entry}" if folder else entry
+                for entry in os.listdir(fsutil.long_path(self.root / folder))
+            )
+        except OSError as error:
+            raise Skip(
+                codes.PLACE,
+                f"The folder {folder} cannot be read ({error.strerror or error}).",
+                file=rel_path,
+            ) from None
+        clash = next((other for other in known if other.casefold() == wanted), None)
+        if clash is not None:
+            how = "exists already" if clash == rel_path else f"differs from {clash} only by case"
+            raise Skip(
+                codes.FILE_COLLISION,
+                f"The new file {rel_path} {how}. Rename the object or use "
+                'new_object_placement = "existing_file".',
+                file=rel_path,
+            )
+        sibling = self.doc(sibling_path)
+        text = sibling.text
+        root = sibling.root
+        declaration = re.match(r"\s*<\?xml.*?\?>", text[: root.start], re.DOTALL)
+        eol = sibling.eol
+        start_tag = text[root.start : root.start_end]
+        if root.end_start < 0:  # <AUTOSAR .../>
+            start_tag = start_tag[:-2].rstrip() + ">"
+        skeleton = (
+            (declaration.group(0).strip() + eol if declaration else "")
+            + start_tag
+            + eol
+            + f"</{root.raw}>"
+            + (eol if text.endswith("\n") else "")
+        )
+        document = Document(rel_path, skeleton, sibling.codec, sibling.bom, created=True)
+        document.eol = eol
+        document.unit = sibling.unit
+        document.hint_uuid = sibling.any_uuid()
+        self._package_uuids[rel_path] = _first_package_has_uuid(sibling)
+        self.docs[rel_path] = document
+        return document
+
+    def package_node(self, op: AnyOperation, document: Document, package_path: str) -> Node:
+        """The AR-PACKAGE ``package_path`` in ``document``; missing packages are created."""
+        node = document.root
+        for name in (part for part in package_path.split("/") if part):
+            holder = self.ensure(op, document, node, "AR-PACKAGES")
+            found = None
+            for child in holder.children:
+                if child.tag == "AR-PACKAGE" and document.name_of(child) == name:
+                    found = child
+                    break
+            if found is None:
+                if self.settings.uuid == "auto":
+                    # packages follow the packages of the file, not its other elements
+                    like_file = self._package_uuids.get(document.rel_path)
+                    if like_file is None:
+                        like_file = _first_package_has_uuid(document)
+                    uuid = self.uuid_maker(document, holder) if like_file else _no_uuid
+                else:
+                    uuid = self.uuid_maker(document, holder)
+                found = templates.package(name, uuid)
+                document.insert(holder, found)
+            node = found
+        return node
+
+    def add_packaged(
+        self,
+        op: AnyOperation,
+        state: OpState,
+        document: Document,
+        package_path: str,
+        build: Callable[[Callable[[], str | None]], Node],
+        note: str,
+    ) -> None:
+        """Insert a new element into ELEMENTS of ``package_path`` (created if missing)."""
+        package = self.package_node(op, document, package_path)
+        holder = self.ensure(op, document, package, "ELEMENTS")
+        new = build(self.uuid_maker(document, holder))
+        document.insert(holder, new)
+        self._new_paths.add(f"{package_path}/{document.name_of(new)}")
+        self.touch(state, document, new, note)
 
     def touch(self, state: OpState, document: Document, top: Node, note: str) -> None:
         """Remember that ``top`` (an element of a package) was changed for ``state``."""
@@ -832,6 +1020,317 @@ class Session:
             + (f", task {op.task}" if op.task else "")
         )
 
+    def add_interface(self, op: AddInterface, state: OpState) -> None:
+        path = f"{op.package_path}/{op.name}"
+        if op.kind not in (InterfaceKind.SENDER_RECEIVER, InterfaceKind.CLIENT_SERVER):
+            raise Skip(
+                codes.UNSUPPORTED, f"A new {op.kind.value} interface is not supported yet.", path
+            )
+        new = PortInterface(
+            path=path,
+            name=op.name,
+            kind=op.kind,
+            elements=tuple(DataElement(e.name, e.type_path, e.is_queued) for e in op.elements),
+            operations=tuple(
+                Operation(
+                    o.name, tuple(Argument(a.name, a.direction, a.type_path) for a in o.arguments)
+                )
+                for o in op.operations
+            ),
+        )
+        existing = self._new_interfaces.get(path) or self.model.interfaces.get(path)
+        if existing is not None:
+            same = (existing.kind, existing.elements) == (new.kind, new.elements) and [
+                (o.name, o.arguments) for o in existing.operations
+            ] == [(o.name, o.arguments) for o in new.operations]
+            if same:
+                raise AlreadyThere(f"Port interface {path} already exists.", path)
+        if existing is not None or self.path_taken(path):
+            raise Skip(codes.NAME_USED, f"{path} already exists and is something else.", path)
+        if op.kind is InterfaceKind.SENDER_RECEIVER and not op.elements:
+            raise Skip(codes.INCOMPLETE, "A sender-receiver interface needs a data element.", path)
+        if op.kind is InterfaceKind.CLIENT_SERVER and not op.operations:
+            raise Skip(codes.INCOMPLETE, "A client-server interface needs an operation.", path)
+        for type_path in [e.type_path for e in op.elements] + [
+            a.type_path for o in op.operations for a in o.arguments
+        ]:
+            self.data_type_dest(type_path)
+        document = self.place("interfaces", op.package_path, op.name)
+
+        self.add_packaged(
+            op,
+            state,
+            document,
+            op.package_path,
+            lambda uuid: templates.interface(op, self.type_dest, self.settings, uuid),
+            f"interface {op.name}",
+        )
+        self._new_interfaces[path] = new
+        members = [e.name for e in op.elements] + [o.name for o in op.operations]
+        state.preview = f"add {op.kind.value} interface {path} ({', '.join(members)})" + (
+            f" in the new file {document.rel_path}" if document.created else ""
+        )
+
+    def _unit_path(self, unit: str | None) -> str | None:
+        if unit is None:
+            return None
+        units = self.model.units
+        if unit.startswith("/"):
+            matches = [unit] if unit in units else []
+        else:
+            matches = [u.path for u in units.values() if unit in (u.name, u.display_name)]
+        if len(matches) != 1:
+            what = "does not exist" if not matches else "is ambiguous: give its path"
+            raise Skip(codes.REF_MISSING, f"Unit {unit} {what}.", unit)
+        return matches[0]
+
+    def add_data_type(self, op: AddDataType, state: OpState) -> None:
+        path = f"{op.package_path}/{op.name}"
+        implementation = op.level is DataTypeLevel.IMPLEMENTATION
+        existing = self._new_types.get(path) or self.model.data_types.get(path)
+        if existing is not None and (existing.level, existing.category) == (op.level, op.category):
+            raise AlreadyThere(f"Data type {path} already exists.", path)
+        if existing is not None or self.path_taken(path):
+            raise Skip(codes.NAME_USED, f"{path} already exists and is something else.", path)
+        element_paths: tuple[str, ...] = ()
+        element_names: tuple[str, ...] = ()
+        if op.category in _SCALAR:
+            if implementation:
+                if op.base_type_path is None:
+                    raise Skip(codes.INCOMPLETE, "An implementation data type needs a base type.")
+                if self.type_dest(op.base_type_path) != templates.BASE_TYPE:
+                    raise Skip(
+                        codes.REF_KIND,
+                        f"{op.base_type_path} is not a base type (SW-BASE-TYPE).",
+                        op.base_type_path,
+                    )
+                base = self.model.base_types[op.base_type_path]
+                if op.category is DataTypeCategory.BOOLEAN and (
+                    (base.encoding or "").upper() != "BOOLEAN"
+                ):
+                    raise Skip(
+                        codes.REF_KIND,
+                        f"{op.base_type_path} is not a boolean base type "
+                        "(BASE-TYPE-ENCODING BOOLEAN).",
+                        op.base_type_path,
+                    )
+            if op.category is DataTypeCategory.ENUMERATION and not op.enum_values:
+                raise Skip(codes.INCOMPLETE, "An enumeration needs at least one value.", path)
+        elif op.category is DataTypeCategory.ARRAY:
+            if op.element_type_path is None or not op.array_size or op.array_size < 1:
+                raise Skip(codes.INCOMPLETE, "An array needs an element type and a size.", path)
+            element_paths = (op.element_type_path,)
+            element_names = (self.settings.array_element_name,)
+        elif op.category is DataTypeCategory.RECORD:
+            element_names = tuple(item.name for item in op.record_elements)
+            element_paths = tuple(item.type_path for item in op.record_elements)
+            if not element_names or len(set(element_names)) != len(element_names):
+                raise Skip(codes.INCOMPLETE, "A record needs elements with different names.", path)
+        elif op.category is DataTypeCategory.TYPE_REFERENCE and implementation:
+            if op.base_type_path is None:
+                raise Skip(codes.INCOMPLETE, "A type reference needs the referenced data type.")
+            self.data_type_dest(op.base_type_path, DataTypeLevel.IMPLEMENTATION)
+        else:
+            raise Skip(
+                codes.UNSUPPORTED,
+                f"A new {op.level.value} data type of category '{op.category.value}' is not "
+                "supported yet.",
+                path,
+            )
+        for element_path in element_paths:
+            if implementation and self.type_dest(element_path) == templates.BASE_TYPE:
+                continue
+            self.data_type_dest(element_path, op.level)
+
+        unit_path = self._unit_path(op.unit)
+        scaled = op.factor is not None or op.offset is not None
+        wants_compu = op.category is DataTypeCategory.ENUMERATION or (
+            op.category is DataTypeCategory.VALUE
+            and (scaled or (unit_path is not None and implementation))
+        )
+        wants_constr = op.category in _SCALAR and (
+            op.lower_limit is not None or op.upper_limit is not None
+        )
+        packages = self.config.packages
+        document = self.place("data_types", op.package_path, op.name)
+        extras: list[tuple[Document, str, str, str]] = []  # (file, package, name, kind)
+        compu_path: str | None = None
+        constr_path: str | None = None
+        for wanted, kind, package, pattern, known in (
+            (
+                wants_compu,
+                "compu_methods",
+                packages.compu_methods,
+                self.settings.compu_method_pattern,
+                self.model.compu_methods,
+            ),
+            (
+                wants_constr,
+                "constraints",
+                packages.constraints,
+                self.settings.constraint_pattern,
+                self.model.constraints,
+            ),
+        ):
+            if not wanted:
+                continue
+            name = pattern.format(name=op.name)
+            extra_path = f"{package}/{name}"
+            if kind == "compu_methods":
+                compu_path = extra_path
+            else:
+                constr_path = extra_path
+            if extra_path in known:
+                self.warn(
+                    op,
+                    codes.VALUE_IGNORED,
+                    f"{extra_path} exists already: it is used as it is.",
+                    extra_path,
+                )
+                continue
+            if self.path_taken(extra_path) or extra_path == path:
+                raise Skip(codes.NAME_USED, f"{extra_path} already exists.", extra_path)
+            home = document if document.created else self.place(kind, package, name, document)
+            extras.append((home, package, name, kind))
+        mapping: tuple[Document, Node, str] | None = None
+        mapping_set = self.settings.data_type_mapping_set
+        if mapping_set and not implementation and op.base_type_path is not None:
+            mapping = self._mapping_target(op, mapping_set, op.base_type_path)
+
+        tag = templates.data_type_tag(op.level, op.category)
+        for home, package, name, kind in extras:
+            if kind == "compu_methods":
+                self.add_packaged(
+                    op,
+                    state,
+                    home,
+                    package,
+                    lambda uuid, name=name: templates.compu_method(name, op, unit_path, uuid),  # type: ignore[misc]
+                    f"compu method {name}",
+                )
+            else:
+                self.add_packaged(
+                    op,
+                    state,
+                    home,
+                    package,
+                    lambda uuid, name=name: templates.data_constr(name, op, uuid),  # type: ignore[misc]
+                    f"data constraint {name}",
+                )
+        self.add_packaged(
+            op,
+            state,
+            document,
+            op.package_path,
+            lambda uuid: templates.data_type(
+                op, self.type_dest, compu_path, constr_path, unit_path, self.settings, uuid
+            ),
+            f"data type {op.name}",
+        )
+        if mapping is not None:
+            map_document, map_node, implementation_path = mapping
+            holder = self.ensure(op, map_document, map_node, "DATA-TYPE-MAPS")
+            map_document.insert(holder, templates.data_type_map(path, tag, implementation_path))
+            self.touch(state, map_document, map_node, f"type map for {op.name}")
+        self._new_types[path] = DataType(
+            path=path,
+            name=op.name,
+            level=op.level,
+            category=op.category,
+            base_type_path=op.base_type_path if implementation else None,
+            compu_method_path=compu_path,
+            constraint_path=constr_path,
+            element_type_paths=element_paths,
+            element_names=element_names,
+            array_size=op.array_size,
+        )
+        state.preview = (
+            f"add {op.level.value} data type {path} ({op.category.value})"
+            + (f", compu method {_last(compu_path)}" if compu_path else "")
+            + (f", constraint {_last(constr_path)}" if constr_path else "")
+            + (f" in the new file {document.rel_path}" if document.created else "")
+        )
+
+    def _mapping_target(
+        self, op: AddDataType, mapping_set: str, implementation_path: str
+    ) -> tuple[Document, Node, str] | None:
+        """Where the DATA-TYPE-MAP of a new application type goes; None with a warning."""
+        target = self._new_types.get(implementation_path) or self.model.data_types.get(
+            implementation_path
+        )
+        known = self.model.mapping_sets.get(mapping_set)
+        if target is None or target.level is not DataTypeLevel.IMPLEMENTATION or known is None:
+            self.warn(
+                op,
+                codes.VALUE_IGNORED,
+                f"No data type map was written: {mapping_set} or the implementation data type "
+                f"{implementation_path} does not exist.",
+                mapping_set,
+            )
+            return None
+        document = self.doc(known.origin.file)
+        node = document.find(mapping_set)
+        if node is None or node.tag != "DATA-TYPE-MAPPING-SET":
+            raise Skip(
+                codes.LOCATE,
+                f"{mapping_set} was not found in {document.rel_path}.",
+                mapping_set,
+                document.rel_path,
+            )
+        return document, node, implementation_path
+
+
+class _Placement:
+    """Which file holds which package, counted from the objects of the model.
+
+    Files of model-owned and locked components are left out: nothing is added to them.
+    """
+
+    def __init__(self, model: Model) -> None:
+        protected = {
+            component.origin.file
+            for component in model.components.values()
+            if component.owner is not ArxmlOwner.DAVINCI
+        }
+        self._direct: dict[tuple[str, str], Counter[str]] = {}
+        self._under: dict[str, Counter[str]] = {}
+        self._by_kind: dict[str, Counter[str]] = {kind: Counter() for kind in _PACKAGED}
+        for kind in _PACKAGED:
+            for item in getattr(model, kind).values():
+                file = item.origin.file
+                if not file or file in protected:
+                    continue
+                package = item.path.rsplit("/", 1)[0]
+                self._direct.setdefault((kind, package), Counter())[file] += 1
+                self._by_kind[kind][file] += 1
+                while package:
+                    self._under.setdefault(package, Counter())[file] += 1
+                    package = package.rsplit("/", 1)[0]
+
+    def best_file(self, kind: str, package: str) -> str | None:
+        """File that holds ``package`` with the most objects of ``kind``; else the file of
+        the nearest parent package; else the file with the most objects of ``kind``."""
+        of_kind = self._by_kind[kind]
+        counts = self._direct.get((kind, package))
+        if counts:
+            return min(counts, key=lambda file: (-counts[file], file))
+        while package:
+            under = self._under.get(package)
+            if under:
+                return min(under, key=lambda file: (-of_kind[file], -under[file], file))
+            package = package.rsplit("/", 1)[0]
+        if of_kind:
+            return min(of_kind, key=lambda file: (-of_kind[file], file))
+        return None
+
+
+def _first_package_has_uuid(document: Document) -> bool:
+    holder = document.root.child("AR-PACKAGES")
+    if holder is None:
+        return False
+    first = next((child for child in holder.children if not child.virtual), None)
+    return first is not None and document.attribute(first, "UUID") is not None
+
 
 def _same_period(left: float | None, right: float | None) -> bool:
     if left is None or right is None:
@@ -849,4 +1348,6 @@ _HANDLERS: dict[str, Callable[[Session, AnyOperation, OpState], None]] = {
     "add_server_runnable": Session.add_server_runnable,  # type: ignore[dict-item]
     "add_access_point": Session.add_access_point,  # type: ignore[dict-item]
     "add_trigger": Session.add_trigger,  # type: ignore[dict-item]
+    "add_interface": Session.add_interface,  # type: ignore[dict-item]
+    "add_data_type": Session.add_data_type,  # type: ignore[dict-item]
 }

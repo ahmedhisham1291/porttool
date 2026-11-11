@@ -584,5 +584,5 @@ def data_type_map(application_path: str, application_dest: str, implementation_p
     )
 
 
-def package(name: str) -> Node:
-    return named("AR-PACKAGE", name)
+def package(name: str, uuid: Uuid) -> Node:
+    return named("AR-PACKAGE", name, uuid=uuid())
