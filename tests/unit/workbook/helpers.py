@@ -43,9 +43,9 @@ def header_of(sheet: Sheet, key: str) -> str:
 
 
 def set_cells(worksheet: Any, sheet: Sheet, row: int, **values: Any) -> None:
-    """Set cells of ``row`` by column key."""
+    """Set cells of ``row`` by column key. None clears the cell."""
     for key, value in values.items():
-        worksheet.cell(row=row, column=column_of(sheet, key), value=value)
+        worksheet.cell(row=row, column=column_of(sheet, key)).value = value
 
 
 def data_row_count(worksheet: Any) -> int:

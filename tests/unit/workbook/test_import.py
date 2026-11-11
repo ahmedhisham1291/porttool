@@ -40,7 +40,7 @@ RP_DIAG = row_id(Sheet.PORTS, f"{CT}/SwcA/RpDiag")
 Change = Callable[[Any], None]
 
 
-def new_port(worksheet: Any, row: int, name: str = "RpNew", **more: Any) -> None:
+def new_port(worksheet: Any, row: int, name: Any = "RpNew", **more: Any) -> None:
     values: dict[str, Any] = {
         "swc": "SwcA",
         "port": name,
@@ -142,7 +142,7 @@ def test_action_outside_the_list_returns_finding_and_the_row(
     finding = imported.findings[0]
     assert finding.severity is Severity.ERROR
     assert finding.row == RowRef(file=str(path), sheet="Ports", row=3)
-    assert "'REMOVE' is not an Action. Use one of ADD, DELETE, MODIFY." in finding.message
+    assert "'remove' is not an Action. Use one of ADD, DELETE, MODIFY." in finding.message
 
 
 def test_new_row_without_action_returns_finding_and_the_row(
@@ -293,7 +293,11 @@ def test_non_breaking_spaces_are_normalised(
 
     imported = io.import_rows([edited(exported, change)], meta)
     row = only_row(imported.rows)
-    assert (row.values["port"], row.action, row.comment) == ("RpNew", "ADD", "pasted from a web page")
+    assert (row.values["port"], row.action, row.comment) == (
+        "RpNew",
+        "ADD",
+        "pasted from a web page",
+    )
     assert imported.findings == ()
 
 
@@ -303,7 +307,17 @@ def test_numbers_stored_as_text_and_text_stored_as_numbers(
     def change(workbook: Any) -> None:
         worksheet = workbook["RunnableTriggers"]
         base = {"swc": "SwcA", "runnable": "RunA_10ms", "trigger_kind": "periodic", "action": "ADD"}
-        periods: list[Any] = [20, 20.0, "20", " 20 ", 2.5, "2.50", 0.1 + 0.2, 1e-05, 12345678901234567890]
+        periods: list[Any] = [
+            20,
+            20.0,
+            "20",
+            " 20 ",
+            2.5,
+            "2.50",
+            0.1 + 0.2,
+            1e-05,
+            12345678901234567890,
+        ]
         for offset, period in enumerate(periods):
             set_cells(worksheet, Sheet.RUNNABLE_TRIGGERS, 5 + offset, period_ms=period, **base)
         set_cells(worksheet, Sheet.RUNNABLE_TRIGGERS, 20, task=True, port=False, **base)
@@ -431,7 +445,9 @@ def test_merged_cells_are_reported(io: XlsxWorkbookIO, exported: Path, meta: Wor
         worksheet = workbook["Ports"]
         new_port(worksheet, FIRST_BLANK)
         new_port(worksheet, FIRST_BLANK + 1, swc=None)
-        worksheet.merge_cells(start_row=FIRST_BLANK, start_column=2, end_row=FIRST_BLANK + 1, end_column=2)
+        worksheet.merge_cells(
+            start_row=FIRST_BLANK, start_column=2, end_row=FIRST_BLANK + 1, end_column=2
+        )
         worksheet.merge_cells("K20:L21")  # in blank rows: no request is affected
         worksheet.merge_cells("Z30:AA31")  # outside the layout columns: ignored
 
@@ -513,10 +529,13 @@ def test_reordered_columns_are_matched_by_header(
         worksheet = workbook["Ports"]
         set_cells(worksheet, PORTS, 3, action="DELETE", requester="Ada")
         new_port(worksheet, FIRST_BLANK)
-        rows = [list(row) for row in worksheet.iter_rows(min_row=1, max_row=FIRST_BLANK, values_only=True)]
+        rows = [
+            list(row)
+            for row in worksheet.iter_rows(min_row=1, max_row=FIRST_BLANK, values_only=True)
+        ]
         for row_number, values in enumerate(rows, start=1):
             for column_number, value in enumerate(reversed(values), start=1):
-                worksheet.cell(row=row_number, column=column_number, value=value)
+                worksheet.cell(row=row_number, column=column_number).value = value
 
     path = edited(exported, change)
     imported = io.import_rows([path], meta)
@@ -604,7 +623,7 @@ def test_sheet_without_row_id_or_action_column_is_not_imported(
     def change(workbook: Any) -> None:
         worksheet = workbook["Ports"]
         set_cells(worksheet, PORTS, 2, action="DELETE")
-        worksheet.cell(row=1, column=column_of(PORTS, key), value=None)
+        worksheet.cell(row=1, column=column_of(PORTS, key)).value = None
         set_cells(workbook["Connections"], Sheet.CONNECTIONS, 2, action="DELETE")
 
     imported = io.import_rows([edited(exported, change)], meta)
@@ -668,7 +687,9 @@ def test_missing_sheet_returns_finding_and_the_other_sheets_are_imported(
     assert codes_of(imported.findings) == [codes.SHEET_MISSING]
     finding = imported.findings[0]
     assert finding.severity is Severity.WARNING
-    assert finding.message == "'edited.xlsx' has no sheet 'Connections'. No request was read for it."
+    assert (
+        finding.message == "'edited.xlsx' has no sheet 'Connections'. No request was read for it."
+    )
     assert finding.file == str(path)
 
 
@@ -715,7 +736,7 @@ def test_sheet_name_in_other_case_or_with_spaces_is_still_found(
     def change(workbook: Any) -> None:
         set_cells(workbook["Ports"], PORTS, 2, action="DELETE")
         workbook["Ports"].title = " PORTS "
-        workbook["Meta"].title = "meta"
+        workbook["Meta"].title = "META\u00a0"
 
     imported = io.import_rows([edited(exported, change)], meta)
     row = only_row(imported.rows)
@@ -755,9 +776,7 @@ def test_stale_baseline_returns_finding(
     assert imported.metas == ((str(exported), meta),)
 
     other_files = make_meta(model, model_hash="0" * 64)
-    assert codes_of(io.import_rows([exported], other_files).findings) == [
-        codes.META_STALE_BASELINE
-    ]
+    assert codes_of(io.import_rows([exported], other_files).findings) == [codes.META_STALE_BASELINE]
     no_git = make_meta(model, baseline_commit=None)
     stale = io.import_rows([exported], no_git).findings
     assert codes_of(stale) == [codes.META_STALE_BASELINE]
@@ -847,7 +866,13 @@ def test_workbook_written_by_openpyxl_itself_is_imported(
                 {"row_id": PP_SPEED, "swc": "SwcA", "port": "PpSpeed", "direction": "P"},
                 {"row_id": RP_DIAG, "swc": "SwcA", "port": "RpDiag", "action": "delete"},
                 {},
-                {"swc": "SwcB", "port": "RpNew", "direction": "R", "interface": "IfSpeed", "action": "ADD"},
+                {
+                    "swc": "SwcB",
+                    "port": "RpNew",
+                    "direction": "R",
+                    "interface": "IfSpeed",
+                    "action": "ADD",
+                },
             ],
             Sheet.CONNECTIONS: [
                 {
@@ -865,7 +890,7 @@ def test_workbook_written_by_openpyxl_itself_is_imported(
     path = tmp_path / "from_other_tool.xlsx"
     workbook.save(path)
     with zipfile.ZipFile(path) as archive:
-        assert "definedName" not in archive.read("xl/workbook.xml").decode("utf-8")
+        assert "<definedName " not in archive.read("xl/workbook.xml").decode("utf-8")
 
     imported = io.import_rows([path], meta)
     assert [(row.sheet, row.row.row, row.row_id, row.action) for row in imported.rows] == [
@@ -1124,11 +1149,7 @@ def _corrupt_cases(exported: Path) -> dict[str, bytes]:
 def test_corrupt_zip_returns_finding_and_nothing_is_imported(
     io: XlsxWorkbookIO, exported: Path, meta: WorkbookMeta
 ) -> None:
-    def change(workbook: Any) -> None:
-        set_cells(workbook["DataTypes"], Sheet.DATA_TYPES, 2, action="DELETE")
-
-    good = edited(exported, change, "good.xlsx")  # DataTypes is read before Ports
-    cases = _corrupt_cases(good)
+    cases = _corrupt_cases(exported)
     assert len(cases) == 10
     for label, data in cases.items():
         path = exported.with_name("damaged.xlsx")
@@ -1139,8 +1160,24 @@ def test_corrupt_zip_returns_finding_and_nothing_is_imported(
         assert finding.severity is Severity.ERROR, label
         assert "is damaged or is not an Excel workbook" in finding.message, label
         assert "Nothing was imported from it" in finding.message, label
-        # Not even the rows of the sheets that were read before the damage showed.
         assert imported.rows == () and imported.metas == (), label
+
+
+def test_rows_read_before_the_damage_showed_are_not_returned(
+    io: XlsxWorkbookIO, exported: Path, meta: WorkbookMeta
+) -> None:
+    def change(workbook: Any) -> None:
+        set_cells(workbook["DataTypes"], Sheet.DATA_TYPES, 2, action="DELETE")
+
+    good = edited(exported, change, "good.xlsx")
+    assert len(io.import_rows([good], meta).rows) == 1
+    # DataTypes is read before Ports: its request row must not survive the damaged file.
+    damaged = patch_parts(
+        good, exported.with_name("cut.xlsx"), {sheet_part(good, "Ports"): _truncate}
+    )
+    imported = io.import_rows([damaged], meta)
+    assert codes_of(imported.findings) == [codes.FILE_CORRUPT]
+    assert imported.rows == () and imported.metas == ()
 
 
 def test_damaged_formula_sheet_is_a_corrupt_file() -> None:
@@ -1203,7 +1240,14 @@ def test_cell_text() -> None:
 
 
 def test_column_letters_and_numbers() -> None:
-    for number, letters in ((1, "A"), (26, "Z"), (27, "AA"), (52, "AZ"), (703, "AAA"), (16384, "XFD")):
+    for number, letters in (
+        (1, "A"),
+        (26, "Z"),
+        (27, "AA"),
+        (52, "AZ"),
+        (703, "AAA"),
+        (16384, "XFD"),
+    ):
         assert importer._column_letters(number) == letters
         assert importer._column_number(letters) == number
 
