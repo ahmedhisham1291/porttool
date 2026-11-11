@@ -133,9 +133,10 @@ def build_git(
         return section
     section["is_repo"] = True
     toplevel = git.text("rev-parse", "--show-toplevel")
-    same = toplevel is not None and normalize_path(toplevel).casefold() == normalize_path(
-        repo_root
-    ).casefold()
+    same = (
+        toplevel is not None
+        and normalize_path(toplevel).casefold() == normalize_path(repo_root).casefold()
+    )
     section["repo_folder_is_work_tree_root"] = same
     if not same:
         ctx.info(
@@ -207,7 +208,9 @@ def build_git(
         generated.append(
             {
                 "folder": names.rel_path(rel, is_dir=True),
-                "ignored": {0: True, 1: False}.get(ignored.exit_code if ignored.started else -1),
+                "ignored": {0: True, 1: False}.get(
+                    ignored.exit_code if ignored.exit_code is not None else -1
+                ),
                 "tracked_files": len(tracked) if tracked is not None else None,
             }
         )

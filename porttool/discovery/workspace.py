@@ -168,9 +168,7 @@ class StructNode:
         return {
             "tag": self.tag,
             "count": self.count,
-            "attributes": {
-                name: leaf.as_dict(names) for name, leaf in self.attributes.items()
-            },
+            "attributes": {name: leaf.as_dict(names) for name, leaf in self.attributes.items()},
             "text": self.text.as_dict(names) if self.text.count else None,
             "children": [child.as_dict(names) for child in self.children.values()],
         }
@@ -365,9 +363,7 @@ def _arxml_section(
         if rel.rpartition("/")[0].casefold() in listed_folders and not covered(rel)
     ]
     workspace_folder = entry.folder
-    in_tree = [
-        rel for rel in index.arxml if below(rel, workspace_folder) and not covered(rel)
-    ]
+    in_tree = [rel for rel in index.arxml if below(rel, workspace_folder) and not covered(rel)]
     by_subfolder: Counter[str] = Counter()
     for rel in in_tree:
         inner = rel[len(workspace_folder) + 1 :] if workspace_folder else rel

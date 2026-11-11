@@ -193,8 +193,7 @@ def render_anonymous(node: Node, policy: RenderPolicy) -> str:
     if node.tag == COMMENT_TAG:
         return f"<!-- comment removed by --anonymize: {len(node.text)} characters -->"
     attributes = "".join(
-        f" {key}={quoteattr(_anonymous_attribute(policy, key, value))}"
-        for key, value in node.attrs
+        f" {key}={quoteattr(_anonymous_attribute(policy, key, value))}" for key, value in node.attrs
     )
     if node.self_closing:
         return f"<{node.tag}{attributes}/>"
@@ -362,9 +361,7 @@ class _Differ:
                 "index": index,
                 "of": len(siblings),
                 "after": self._sibling(siblings[index - 1]) if index > 0 else None,
-                "before": self._sibling(siblings[index + 1])
-                if index + 1 < len(siblings)
-                else None,
+                "before": self._sibling(siblings[index + 1]) if index + 1 < len(siblings) else None,
                 "siblings_with_this_tag": _sibling_order(parent, node.tag),
             }
         limit = self.max_chars if parent is not None else MAX_FILE_CHARS
@@ -463,9 +460,7 @@ def diff_xml(
     changed_style: list[str] = []
     if base_style is not None and head_style is not None:
         changed_style = [
-            name
-            for name in _STYLE_FIELDS
-            if getattr(base_style, name) != getattr(head_style, name)
+            name for name in _STYLE_FIELDS if getattr(base_style, name) != getattr(head_style, name)
         ]
     result["bytes"]["changed"] = changed_style
 

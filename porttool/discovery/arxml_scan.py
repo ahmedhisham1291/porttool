@@ -107,9 +107,7 @@ NESTED_TAGS: tuple[str, ...] = (
 )
 
 #: Names of authoring tools whose mention marks a file as exported from a model.
-_TOOL_KEYWORD_RE = re.compile(
-    r"simulink|matlab|embedded\s*coder|targetlink|dspace", re.IGNORECASE
-)
+_TOOL_KEYWORD_RE = re.compile(r"simulink|matlab|embedded\s*coder|targetlink|dspace", re.IGNORECASE)
 _KEYWORD_NAMES = {
     "simulink": "Simulink",
     "matlab": "MATLAB",

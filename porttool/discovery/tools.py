@@ -248,9 +248,9 @@ def find_executables(search: ToolSearch) -> list[ToolExecutable]:
                 break
             folder = parent
     for entry in search.repo_files:
-        tool = tool_of(entry.name, search.suffixes)
-        if tool is not None:
-            candidates.append((tool, entry.path, "inside the repo"))
+        repo_tool = tool_of(entry.name, search.suffixes)
+        if repo_tool is not None:
+            candidates.append((repo_tool, entry.path, "inside the repo"))
 
     found: list[ToolExecutable] = []
     seen: set[str] = set()
@@ -395,7 +395,7 @@ def _redactions(repo_root: str, environ: Mapping[str, str]) -> list[tuple[str, s
 def redact(text: str, pairs: Sequence[tuple[str, str]]) -> str:
     """Replace machine-specific strings (repo path, user, computer) without regard to case."""
     for needle, label in pairs:
-        text = re.sub(re.escape(needle), lambda _m, shown=label: shown, text, flags=re.IGNORECASE)
+        text = re.compile(re.escape(needle), re.IGNORECASE).sub(label.replace("\\", "\\\\"), text)
     return text
 
 

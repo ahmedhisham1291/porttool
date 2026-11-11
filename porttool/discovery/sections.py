@@ -539,8 +539,7 @@ def build_ecuc(facts: Sequence[ArxmlFacts], ctx: Context) -> dict[str, Any]:
                 detail["event_to_task_mapping"] = {
                     "mapping_containers": module.mapping_containers,
                     "with_task_reference": module.mappings_with_task,
-                    "without_task_reference": module.mapping_containers
-                    - module.mappings_with_task,
+                    "without_task_reference": module.mapping_containers - module.mappings_with_task,
                     "with_event_reference": module.mappings_with_event,
                     "distinct_tasks_referenced": len(module.referenced_tasks),
                     "position_in_task_parameters": sum(
@@ -857,9 +856,7 @@ def lock_pattern(name: str) -> str | None:
 
 def build_lock_signs(walk: WalkResult, ctx: Context) -> dict[str, Any]:
     names = ctx.names
-    workspace_folders = {
-        entry.folder for entry in walk.files if file_type(entry.name) is not None
-    }
+    workspace_folders = {entry.folder for entry in walk.files if file_type(entry.name) is not None}
     items: list[dict[str, Any]] = []
     total = in_workspace = 0
     by_pattern: Counter[str] = Counter()

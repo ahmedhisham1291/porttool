@@ -57,9 +57,7 @@ _TOOL_SEGMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-_NUMBER_RE = re.compile(
-    r"^[+-]?(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?|\.\d+)$"
-)
+_NUMBER_RE = re.compile(r"^[+-]?(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(\.\d+)?([eE][+-]?\d+)?|\.\d+)$")
 _UUID_RE = re.compile(
     r"^\{?([A-Za-z]{2,5}:)?[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?"
     r"[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}\}?$"
