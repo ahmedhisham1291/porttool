@@ -95,9 +95,10 @@ DEFAULT_LICENSE_PATTERNS: tuple[str, ...] = (
 )
 #: Text cut out of a line before the error and warning patterns are tried, so that a
 #: summary such as "0 errors, 2 warnings" counts as a warning line and not as an error.
+#: Applied in this order: "Errors: 0  Warnings: 10" must lose "Errors: 0" first.
 DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = (
-    r"(?i)\b(?:0|no)\s+(?:error|warning)s?\b",
     r"(?i)\b(?:error|warning)s?(?:\(s\))?\s*[:=]\s*0\b",
+    r"(?i)\b(?:0|no)\s+(?:error|warning)s?\b",
 )
 DEFAULT_MAX_KEPT_OUTPUT_LINES = 2000
 #: PENDING-DISCOVERY: process names of the DaVinci GUIs.

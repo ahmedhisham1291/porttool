@@ -538,8 +538,24 @@ async def _wait_for_exit(
         family.scan_if_due()
 
 
-async def _settle(wait_task: asyncio.Task[int], pumps: list[asyncio.Task[None]]) -> None:
-    """After a kill: let the exit and the readers finish, then give up on what is left."""
+def _close_transport(process: asyncio.subprocess.Process) -> None:
+    """Close the pipes of an ended tool that a surviving child still holds open.
+
+    asyncio has no public call for this; without it the pipe handles stay open until the
+    garbage collector finds them. ``getattr`` keeps this harmless if the attribute is
+    ever renamed.
+    """
+    transport = getattr(process, "_transport", None)
+    if transport is not None:
+        transport.close()
+
+
+async def _settle(
+    process: asyncio.subprocess.Process,
+    wait_task: asyncio.Task[int],
+    pumps: list[asyncio.Task[None]],
+) -> None:
+    """Let the exit and the readers finish, then give up on what is left."""
     tasks: list[asyncio.Task[Any]] = [wait_task, *pumps]
     try:
         pending = [task for task in tasks if not task.done()]
@@ -549,7 +565,10 @@ async def _settle(wait_task: asyncio.Task[int], pumps: list[asyncio.Task[None]])
         for task in tasks:
             if not task.done():
                 task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        _close_transport(process)
 
 
 async def _wait_for_leftover(family: Family) -> list[tuple[Any, ProcessInfo]]:
@@ -656,11 +675,11 @@ async def _run_logged(
             await asyncio.wait(pending, timeout=PIPE_DRAIN_S)
         _raise_pump_errors(pumps)
         pipes_left_open = any(not pump.done() for pump in pumps)
-        await _settle(wait_task, pumps)
+        await _settle(process, wait_task, pumps)
     except BaseException as error:
         report = kill_family(family)
         try:
-            await _settle(wait_task, pumps)
+            await _settle(process, wait_task, pumps)
         finally:
             elapsed = time.monotonic() - started
             what = (
