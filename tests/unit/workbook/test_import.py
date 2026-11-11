@@ -1009,6 +1009,27 @@ def test_missing_file_and_folder_return_findings(
     assert imported.metas == ()
 
 
+def test_folder_that_windows_reports_as_permission_error_is_not_retried(
+    io: XlsxWorkbookIO,
+    sleeper: SleepRecorder,
+    tmp_path: Path,
+    meta: WorkbookMeta,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows answers "access denied" when a folder is opened as a file."""
+    folder = tmp_path / "folder.xlsx"
+    folder.mkdir()
+
+    def denied(path: Path) -> bytes:
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(importer, "_read_bytes", denied)
+    imported = io.import_rows([folder], meta)
+    assert codes_of(imported.findings) == [codes.FILE_NOT_FOUND]
+    assert "is a folder, not a workbook" in imported.findings[0].message
+    assert sleeper.waits == []
+
+
 def test_same_file_given_twice_is_imported_once(
     io: XlsxWorkbookIO, exported: Path, meta: WorkbookMeta
 ) -> None:
