@@ -2,8 +2,8 @@
 
 ``export_workbook`` is a blocking function. Expected problems (missing folder, locked
 target, full disk, too many rows) come back as findings; nothing is raised for them.
-The file is written to a temporary file in the target folder and moved over the target
-with ``os.replace``, so a reader never sees a half-written workbook.
+The workbook is built in memory, written to a temporary file in the target folder and
+moved over the target with ``os.replace``, so a reader never sees a half-written file.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import errno
+import io
 import os
 import tempfile
 import time
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import IO, Any, Final
 
 import xlsxwriter
-from xlsxwriter.exceptions import FileCreateError, XlsxWriterException
+from xlsxwriter.exceptions import XlsxWriterException
 from xlsxwriter.utility import quote_sheetname, xl_col_to_name
 
 from porttool.core.config import ProjectConfig
@@ -326,8 +327,8 @@ def _write_meta(workbook: Any, meta: WorkbookMeta, formats: _Formats) -> None:
     for row_index, field in enumerate(dataclasses.fields(meta), start=1):
         value = getattr(meta, field.name)
         status |= worksheet.write_string(row_index, 0, field.name, formats.text_locked)
-        text = "" if value is None else str(value)
-        status |= worksheet.write_string(row_index, 1, text, formats.text_locked)
+        if value is not None:
+            status |= worksheet.write_string(row_index, 1, str(value), formats.text_locked)
     _check(status, "a Meta cell")
     _check(worksheet.set_column(0, 0, 22), "a column width")
     _check(worksheet.set_column(1, 1, 70), "a column width")
@@ -335,8 +336,7 @@ def _write_meta(workbook: Any, meta: WorkbookMeta, formats: _Formats) -> None:
     worksheet.hide()
 
 
-def _write_workbook(
-    handle: IO[bytes],
+def _build_workbook(
     sheets: Mapping[Sheet, SheetRows],
     blank_rows: Mapping[Sheet, int],
     lists: Mapping[str, tuple[str, ...]],
@@ -344,32 +344,37 @@ def _write_workbook(
     options: ExportOptions,
     file: str,
     findings: list[Finding],
-) -> None:
-    workbook = xlsxwriter.Workbook(
-        handle,
-        {
-            "in_memory": True,  # no XlsxWriter temp files; zip entries get a fixed time
-            "strings_to_numbers": False,
-            "strings_to_formulas": False,
-            "strings_to_urls": False,
-        },
-    )
-    workbook.set_properties(
-        {"title": "PortTool request workbook", "author": "PortTool", "created": _FIXED_CREATED}
-    )
-    formats = _add_formats(workbook)
-    for sheet in SHEET_ORDER:
-        if sheet is Sheet.README:
-            _write_readme(workbook, readme_lines(meta, options.blank_rows), formats)
-        elif sheet is Sheet.LISTS:
-            _write_lists(workbook, lists, formats, options, file, findings)
-        elif sheet is Sheet.META:
-            _write_meta(workbook, meta, formats)
-        else:
-            _write_data_sheet(
-                workbook, sheets[sheet], blank_rows.get(sheet, 0), formats, options, file, findings
-            )
-    workbook.close()
+) -> bytes:
+    """Return the finished .xlsx package. XlsxWriter never touches the disk here."""
+    buffer = io.BytesIO()
+    try:
+        workbook = xlsxwriter.Workbook(
+            buffer,
+            {
+                "in_memory": True,  # no XlsxWriter temp files; zip entries get a fixed time
+                "strings_to_numbers": False,
+                "strings_to_formulas": False,
+                "strings_to_urls": False,
+            },
+        )
+        workbook.set_properties(
+            {"title": "PortTool request workbook", "author": "PortTool", "created": _FIXED_CREATED}
+        )
+        formats = _add_formats(workbook)
+        for sheet in SHEET_ORDER:
+            if sheet is Sheet.README:
+                _write_readme(workbook, readme_lines(meta, options.blank_rows), formats)
+            elif sheet is Sheet.LISTS:
+                _write_lists(workbook, lists, formats, options, file, findings)
+            elif sheet is Sheet.META:
+                _write_meta(workbook, meta, formats)
+            else:
+                blank = blank_rows.get(sheet, 0)
+                _write_data_sheet(workbook, sheets[sheet], blank, formats, options, file, findings)
+        workbook.close()
+    except XlsxWriterException as error:
+        raise WorkbookError(detail=f"{type(error).__name__}: {error}") from error
+    return buffer.getvalue()
 
 
 # --------------------------------------------------------------------------- limits
@@ -385,15 +390,15 @@ def _plan_blank_rows(
     """Blank rows per request sheet, or None when a sheet cannot hold its rows."""
     counts = {sheet: len(data.rows) for sheet, data in sheets.items()}
     counts[Sheet.LISTS] = max((len(entries) for entries in lists.values()), default=0)
-    fits = True
+    too_many: list[Finding] = []
+    reduced: list[Finding] = []
     plan: dict[Sheet, int] = {}
     for sheet in SHEET_ORDER:
         if sheet not in counts:
             continue
         needed = counts[sheet] + 1  # header row
         if needed > options.max_rows:
-            fits = False
-            findings.append(
+            too_many.append(
                 Finding(
                     code=codes.EXPORT_TOO_MANY_ROWS,
                     severity=Severity.ERROR,
@@ -408,7 +413,7 @@ def _plan_blank_rows(
             blank = min(options.blank_rows, options.max_rows - needed)
             plan[sheet] = blank
             if blank < options.blank_rows:
-                findings.append(
+                reduced.append(
                     Finding(
                         code=codes.EXPORT_BLANK_ROWS_REDUCED,
                         severity=Severity.WARNING,
@@ -420,7 +425,11 @@ def _plan_blank_rows(
                         file=file,
                     )
                 )
-    return plan if fits else None
+    if too_many:
+        findings.extend(too_many)
+        return None
+    findings.extend(reduced)
+    return plan
 
 
 # --------------------------------------------------------------------------- saving
@@ -509,12 +518,9 @@ def _remove_temp(temp: Path, target: Path) -> Finding | None:
 
 
 def _save(
-    target: Path,
-    write: Callable[[IO[bytes]], None],
-    options: ExportOptions,
-    sleep: Callable[[float], None],
+    target: Path, data: bytes, options: ExportOptions, sleep: Callable[[float], None]
 ) -> list[Finding]:
-    """Write through a temporary file in the target folder, then replace the target."""
+    """Write ``data`` to a temporary file in the target folder, then replace the target."""
     try:
         handle, temp = _open_temp(target)
     except OSError as error:
@@ -523,16 +529,9 @@ def _save(
     try:
         try:
             with handle:
-                write(handle)
+                handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-        except FileCreateError as error:
-            cause = error.args[0] if error.args else None
-            if not isinstance(cause, OSError):
-                raise WorkbookError(detail=str(error)) from error
-            findings.append(_os_finding(cause, target))
-        except XlsxWriterException as error:
-            raise WorkbookError(detail=f"{type(error).__name__}: {error}") from error
         except OSError as error:
             findings.append(_os_finding(error, target))
         else:
@@ -593,13 +592,10 @@ def export_workbook(
     if blank_rows is None:
         return tuple(findings)
 
-    def write(handle: IO[bytes]) -> None:
-        _write_workbook(handle, sheets, blank_rows, lists, meta, options, file, findings)
-
-    cell_findings = len(findings)
-    save_findings = _save(target, write, options, sleep)
+    data = _build_workbook(sheets, blank_rows, lists, meta, options, file, findings)
+    save_findings = _save(target, data, options, sleep)
     if any(finding.severity is Severity.ERROR for finding in save_findings):
         # Nothing was written: findings about cells of that file would only confuse.
-        del findings[cell_findings:]
+        findings.clear()
     findings.extend(save_findings)
     return tuple(findings)
