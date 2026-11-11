@@ -32,7 +32,7 @@ _FILE_FORMAT = "%(asctime)s %(levelname)-8s pid=%(process)d %(threadName)s %(nam
 _CONSOLE_FORMAT = "%(levelname)s: %(message)s"
 _OWNED = "_porttool_owned"
 
-_LOG = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 _log_file: Path | None = None
 
 
@@ -114,7 +114,7 @@ def _tell_user(summary: str) -> None:
     try:
         print(f"PortTool: {summary}.{where}", file=stream, flush=True)
     except (OSError, ValueError) as error:  # stderr closed or broken
-        _LOG.debug("stderr is not writable: %r", error)
+        _logger.debug("stderr is not writable: %r", error)
 
 
 def _excepthook(
@@ -123,7 +123,7 @@ def _excepthook(
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc, traceback)
         return
-    _LOG.critical("Unhandled exception", exc_info=(exc_type, exc, traceback))
+    _logger.critical("Unhandled exception", exc_info=(exc_type, exc, traceback))
     _tell_user(f"unexpected error ({exc_type.__name__}: {exc})")
 
 
@@ -133,9 +133,9 @@ def _threading_excepthook(args: threading.ExceptHookArgs) -> None:
     name = args.thread.name if args.thread is not None else "?"
     error = args.exc_value
     if error is None:  # allowed by the threading API, practically never the case
-        _LOG.critical("Unhandled %s in thread %s", args.exc_type.__name__, name)
+        _logger.critical("Unhandled %s in thread %s", args.exc_type.__name__, name)
     else:
-        _LOG.critical(
+        _logger.critical(
             "Unhandled exception in thread %s",
             name,
             exc_info=(args.exc_type, error, args.exc_traceback),
@@ -151,14 +151,14 @@ def loop_exception_handler(loop: asyncio.AbstractEventLoop, context: dict[str, A
     )
     error = context.get("exception")
     if isinstance(error, BaseException):
-        _LOG.error(
+        _logger.error(
             "asyncio: %s (%s)",
             message,
             source,
             exc_info=(type(error), error, error.__traceback__),
         )
     else:
-        _LOG.error("asyncio: %s (%s)", message, source)
+        _logger.error("asyncio: %s (%s)", message, source)
 
 
 def install_exception_hooks(loop: asyncio.AbstractEventLoop | None = None) -> None:

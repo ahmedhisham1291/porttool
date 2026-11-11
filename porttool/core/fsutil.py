@@ -31,7 +31,7 @@ from porttool.core.errors import RepoStateError, WriteError
 from porttool.core.models import SourceFile
 from porttool.core.results import Finding, Severity
 
-_LOG = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- app folders
 
@@ -159,7 +159,7 @@ def _discard(temp: Path) -> None:
     except FileNotFoundError:
         return
     except OSError as error:
-        _LOG.warning("could not remove temporary file %s: %s", temp, error)
+        _logger.warning("could not remove temporary file %s: %s", temp, error)
 
 
 def _refuse_read_only(target: Path) -> None:
@@ -202,7 +202,7 @@ def _replace_with_retry(temp: Path, target: Path, retries: int, backoff_s: float
                 ) from error
             delay = backoff_s * (2**attempt)
             attempt += 1
-            _LOG.warning(
+            _logger.warning(
                 "replacing %s was refused (%s); retry %d of %d in %.2f s",
                 target,
                 error,
@@ -357,7 +357,7 @@ def is_unchanged(source: SourceFile, repo_root: str | os.PathLike[str]) -> bool:
             return current.mtime_ns == source.mtime_ns
         return sha256_file(path) == source.sha256
     except OSError as error:
-        _LOG.info("fingerprint check: %s cannot be read (%s)", path, error)
+        _logger.info("fingerprint check: %s cannot be read (%s)", path, error)
         return False
 
 
@@ -496,7 +496,7 @@ class RepoLock:
         self._held = False
         current = read_lock(self.lock_file)
         if current is None or current.token != self._token:
-            _LOG.warning(
+            _logger.warning(
                 "lock file %s no longer belongs to this process; it is left alone", self.lock_file
             )
             return
@@ -505,7 +505,7 @@ class RepoLock:
         except FileNotFoundError:
             return
         except OSError as error:
-            _LOG.warning("lock file %s could not be removed: %s", self.lock_file, error)
+            _logger.warning("lock file %s could not be removed: %s", self.lock_file, error)
 
     def __enter__(self) -> RepoLock:
         self.acquire()
@@ -569,7 +569,7 @@ class RepoLock:
                     lock_file=self.lock_file,
                     holder=None,
                 )
-            _LOG.warning("removing unreadable lock file %s", self.lock_file)
+            _logger.warning("removing unreadable lock file %s", self.lock_file)
         elif _process_alive(holder):
             who = "this process" if holder.pid == os.getpid() else f"process {holder.pid}"
             raise RepoLockedError(
@@ -579,7 +579,7 @@ class RepoLock:
                 holder=holder,
             )
         else:
-            _LOG.warning(
+            _logger.warning(
                 "removing stale lock file %s: process %d no longer runs",
                 self.lock_file,
                 holder.pid,

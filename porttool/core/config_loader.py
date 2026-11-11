@@ -45,7 +45,7 @@ from porttool.core.fsutil import atomic_write_text, default_cache_dir
 from porttool.core.models import ArxmlOwner
 from porttool.core.results import Finding, Severity
 
-_LOG = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 CONFIG_FILE_NAME = "porttool.toml"
 OWNERS_FILE_NAME = "owners.csv"
@@ -397,7 +397,7 @@ def load_config(
         config = dataclasses.replace(config, **extra)
     findings = (*problems.findings, *owner_findings, *locked_findings)
     for finding in findings:
-        _LOG.info("config finding %s: %s", finding.code, finding.message)
+        _logger.info("config finding %s: %s", finding.code, finding.message)
     return LoadedConfig(config=config, findings=findings, config_file=file)
 
 
@@ -750,7 +750,7 @@ def save_config(config: ProjectConfig, config_file: str | os.PathLike[str] | Non
         else Path(os.path.abspath(config.repo_root)) / CONFIG_FILE_NAME
     )
     atomic_write_text(target, render_config(config), newline="\n")
-    _LOG.info("configuration written to %s", target)
+    _logger.info("configuration written to %s", target)
     return target
 
 
@@ -848,7 +848,7 @@ def _is_ecuc_file(path: Path) -> bool:
         with open(path, "rb") as stream:
             return _ECUC_MARKER in stream.read(_SNIFF_BYTES)
     except OSError as error:
-        _LOG.info("discovery: %s cannot be read (%s)", path, error)
+        _logger.info("discovery: %s cannot be read (%s)", path, error)
         return False
 
 
