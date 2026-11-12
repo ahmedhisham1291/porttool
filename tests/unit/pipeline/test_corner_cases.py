@@ -300,3 +300,56 @@ def test_wait_for_an_unknown_job_is_a_clear_error(harness: Harness) -> None:
     else:
         raise AssertionError("expected a PipelineError")
     assert harness.service.job_log("nope") == ((), 0)
+
+
+def test_service_is_thread_safe_while_jobs_run_and_start_calls_return_at_once(
+    harness: Harness,
+) -> None:
+    import threading
+    import time
+
+    service = harness.service
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def poll() -> None:
+        try:
+            while not stop.is_set():
+                for view in service.jobs():
+                    assert service.job(view.id) is not None
+                service.model()
+                service.model_is_stale()
+                service.recovery_needed()
+                service.last_validation()
+                service.last_plan()
+                service.last_report()
+        except BaseException as error:  # noqa: BLE001 - reported by the assertion below
+            errors.append(error)
+
+    threads = [threading.Thread(target=poll) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    try:
+        slowest = 0.0
+        for _round in range(3):
+            for start in (
+                service.start_load,
+                lambda: service.start_dry_run_rows(
+                    [port_row("Swc1", f"PpT{_round}", "P", "IfSig1")]
+                ),
+                service.start_apply,
+                service.start_doctor,
+            ):
+                begun = time.perf_counter()
+                job_id = start()
+                slowest = max(slowest, time.perf_counter() - begun)
+                assert harness.run(job_id).state == "done"
+        report = service.last_report()
+        assert report is not None and report.ok, report
+    finally:
+        stop.set()
+        for thread in threads:
+            thread.join()
+    assert errors == []
+    assert slowest < 0.5, f"a start_* call took {slowest:.3f} s"
+    print(f"\n[pipeline] slowest start_* call with 6 polling threads: {slowest * 1000:.1f} ms")

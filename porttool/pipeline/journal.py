@@ -235,8 +235,11 @@ class ApplyJournal:
             self._paths[key] = item
 
     def scope(self, rel_path: str, untracked_before: Iterable[str]) -> None:
-        """Journal a folder or file a DaVinci tool may write, before the tool starts."""
-        norm = normalise(self.repo_root, rel_path)
+        """Journal a folder or file a DaVinci tool may write, before the tool starts.
+
+        ``"."`` is the whole repository folder (when the ARXML root is the repo itself).
+        """
+        norm = "." if rel_path in (".", "") else normalise(self.repo_root, rel_path)
         with self._lock:
             if _key(norm) in self._scopes:
                 return
@@ -279,7 +282,10 @@ class ApplyJournal:
         with self._lock:
             if key in self._paths:
                 return True
-            return any(key == scope or key.startswith(scope + "/") for scope in self._scopes)
+            return any(
+                scope == "." or key == scope or key.startswith(scope + "/")
+                for scope in self._scopes
+            )
 
     # ---- closing
 

@@ -437,3 +437,26 @@ def test_doctor_reports_git_settings_and_runner(tmp_path: Path) -> None:
         assert any("enabled in [pipeline] davinci_steps: check" in i["message"] for i in items)
     finally:
         harness.service.close()
+
+
+def test_arxml_root_that_is_the_repository_folder_is_journaled_as_one_scope(
+    tmp_path: Path,
+) -> None:
+    # The whole repository is the ARXML root: the tool scope is "." and still restores.
+    toml = ALL_STEPS.replace("[pipeline]", '[pipeline]\ntool_write_scopes = ["."]')
+    repo = _repo(tmp_path, toml)
+    runner = FakeRunner(
+        results={"validate": [tool_result("DVCfgCmd", ok=False)]},
+        on_call=lambda name: tool_writes(repo.root, name),
+    )
+    harness = make_service(repo, tmp_path, runner=runner)
+    try:
+        harness.dry_run(TRIGGER_ROWS)
+        before = repo.snapshot()
+        harness.apply()
+        report = harness.service.last_report()
+        assert report is not None and not report.ok and report.rolled_back
+        assert codes.DV_VALIDATE_FAILED in _codes(harness)
+        assert repo.snapshot() == before
+    finally:
+        harness.service.close()

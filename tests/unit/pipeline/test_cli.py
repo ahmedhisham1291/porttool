@@ -179,3 +179,45 @@ def test_a_porttool_error_gives_exit_code_2_and_no_traceback(
     result = CliRunner().invoke(group, ["status", "--repo", str(tmp_path / "missing")])
     assert result.exit_code == 2
     assert "[PT-E100]" in result.output and "Traceback" not in result.output
+
+
+def test_ctrl_c_during_an_apply_cancels_it_rolls_back_and_exits_with_2(
+    group: click.Group, repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    armed, interrupted = threading.Event(), threading.Event()
+
+    def hook(name: str, moment: str) -> None:
+        if (name, moment) == ("write", "start"):
+            armed.set()
+            assert interrupted.wait(60)  # the apply is busy until Ctrl+C was pressed
+
+    real = service_module.build_service
+
+    def build() -> service_module.PortToolService:
+        return real(
+            writer=FakeWriter(),
+            runner_factory=lambda _config: FakeRunner(),
+            journal_dir=tmp_path / "journals",
+            lock_dir=tmp_path / "locks",
+            git_env=repo.env,
+            step_hook=hook,
+        )
+
+    workbook = _workbook(repo, tmp_path, PORT_REQUEST)
+    before = repo.snapshot()
+    monkeypatch.setattr(service_module, "build_service", build)
+    real_sleep = cli.time.sleep
+
+    def sleep(seconds: float) -> None:
+        if armed.is_set() and not interrupted.is_set():
+            interrupted.set()
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+
+    monkeypatch.setattr(cli.time, "sleep", sleep)
+    result = CliRunner().invoke(group, ["apply", "--repo", str(repo.root), "--yes", str(workbook)])
+    assert result.exit_code == 2, result.output
+    assert "Cancelling" in result.output and "Cancelled." in result.output
+    assert repo.snapshot() == before

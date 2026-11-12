@@ -15,10 +15,6 @@ PEND_MALFORMED = "PIP-PEND-001"
 PEND_CONFLICT = "PIP-PEND-002"
 PEND_UNREADABLE = "PIP-PEND-003"
 
-# ---- dry run
-DRY_ROW_REJECTED = "PIP-DRY-001"
-DRY_NO_GIT = "PIP-DRY-002"
-
 # ---- preflight
 PRE_LOCK = "PIP-PRE-001"
 PRE_JOURNAL = "PIP-PRE-002"
@@ -101,8 +97,6 @@ _DESCRIPTIONS: dict[str, str] = {
     PEND_MALFORMED: "The pending file is not a valid pending queue.",
     PEND_CONFLICT: "The pending file holds git merge-conflict markers.",
     PEND_UNREADABLE: "The pending file cannot be read.",
-    DRY_ROW_REJECTED: "The workbook import reported an error for this row.",
-    DRY_NO_GIT: "The git commit of the repository is unknown.",
     PRE_LOCK: "Another PortTool instance works on this repository.",
     PRE_JOURNAL: "The journal of an unfinished apply exists; roll back first.",
     PRE_NO_DRY_RUN: "No dry run to apply.",
