@@ -279,10 +279,10 @@ class ApplyTransaction:
         self.ctx.check_cancelled()
         self.current_step = name
         self.ctx.progress(STEPS.index(name), len(STEPS), title)
-        journal = self.journal
-        if journal is not None:
-            journal.current_step = name
-            await self.ctx.run_blocking(lambda: journal.step(name, "started"))
+        opened = self.journal
+        if opened is not None:
+            opened.current_step = name
+            await self.ctx.run_blocking(lambda: opened.step(name, "started"))
         started = time.perf_counter()
         try:
             self._hook(name, "start")
@@ -299,9 +299,9 @@ class ApplyTransaction:
             )
             raise
         self.timings.append(StepTiming(name, "ok", time.perf_counter() - started))
-        journal = self.journal
-        if journal is not None and not self.closed:
-            await self.ctx.run_blocking(lambda: journal.step(name, "finished"))
+        current = self.journal
+        if current is not None and not self.closed:
+            await self.ctx.run_blocking(lambda: current.step(name, "finished"))
 
     def _set_report(self, report: ApplyReport) -> ApplyReport:
         self.report = report
