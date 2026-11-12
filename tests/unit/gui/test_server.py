@@ -1076,3 +1076,33 @@ def test_requests_on_an_open_connection_are_refused_after_close() -> None:
     finally:
         connection.close()
         service.close()
+
+
+def test_actions_that_need_a_loaded_model_or_an_idle_service(
+    start_server: Starter, tmp_path: Path
+) -> None:
+    service, client = start_server(loaded=False, repo=tmp_path)
+    for path, payload in (
+        ("/api/export", {"target": str(tmp_path / "x.xlsx")}),
+        ("/api/dry-run/rows", {"rows": [PORT_ROW]}),
+        ("/api/apply", None),
+    ):
+        reply = client.post(path, payload)
+        assert (reply.status, reply.error_code) == (409, "no-model"), path
+    service.hang_next = True
+    job_id = client.start("/api/load")
+    reply = client.post("/api/open-repo", {"repo": str(tmp_path)})
+    assert (reply.status, reply.error_code) == (409, "job-running")
+    assert service.calls.count("open_repo") == 0
+    client.post(f"/api/jobs/{job_id}/cancel")
+    client.wait_job(job_id)
+
+
+def test_upload_is_removed_when_the_service_refuses_the_dry_run(start_server: Starter) -> None:
+    service, client = start_server()
+    service.raise_next = RepoStateError("The working tree has uncommitted changes.")
+    content_type, body = multipart([("a.xlsx", xlsx_bytes())])
+    reply = client.post("/api/dry-run/upload", body=body, headers={"Content-Type": content_type})
+    assert (reply.status, reply.error_code) == (409, "PT-E410")
+    assert not list(client.handle.temp_dir.rglob("*.xlsx"))
+    assert client.ok("/api/jobs")["jobs"] == []
