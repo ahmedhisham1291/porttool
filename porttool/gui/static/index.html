@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PortTool</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<noscript><p class="fatal">PortTool needs JavaScript. Turn it on for this page and reload.</p></noscript>
+<div id="fatal" class="fatal" role="alert" hidden></div>
+
+<header class="app-header">
+  <h1 class="brand">PortTool</h1>
+  <div class="repo">
+    <span id="repo-path" class="repo-path" dir="auto">No repo open</span>
+    <span id="model-counts" class="model-counts"></span>
+  </div>
+  <div class="header-actions">
+    <button type="button" id="btn-reload" class="btn" disabled>Reload</button>
+    <button type="button" id="btn-doctor" class="btn btn-quiet" disabled>Check tools</button>
+  </div>
+</header>
+
+<div id="banner-recovery" class="banner banner-danger" role="alert" hidden>
+  <span>An earlier apply did not finish, so the repo may be half-written. Roll back before you do anything else.</span>
+  <button type="button" id="btn-rollback" class="btn btn-danger">Roll back</button>
+</div>
+<div id="banner-stale" class="banner banner-warn" role="status" hidden>
+  <span>Files changed on disk: reload</span>
+  <button type="button" id="btn-reload-stale" class="btn">Reload</button>
+</div>
+
+<section id="job-strip" class="job-strip" aria-label="Running job" hidden>
+  <span id="job-name" class="job-name"></span>
+  <progress id="job-progress" max="100" value="0" aria-label="Progress of the running job"></progress>
+  <span id="job-message" class="job-message" dir="auto"></span>
+  <span id="job-elapsed" class="job-elapsed"></span>
+  <button type="button" id="btn-cancel-job" class="btn">Cancel</button>
+</section>
+
+<div id="messages" class="messages" aria-live="polite"></div>
+
+<main id="main">
+  <section id="view-start" class="pad">
+    <p id="start-text">Starting PortTool&hellip;</p>
+  </section>
+
+  <section id="view-setup" class="pad" hidden>
+    <h2>Open a repo</h2>
+    <form id="setup-form" class="card">
+      <label for="repo-input">Folder of the ECU repo (the folder that holds porttool.toml)</label>
+      <div class="row">
+        <input id="repo-input" type="text" class="grow" autocomplete="off" spellcheck="false">
+        <button type="submit" id="btn-open" class="btn btn-primary">Open</button>
+      </div>
+    </form>
+    <ul id="setup-findings" class="findings" aria-label="Findings of the configuration"></ul>
+  </section>
+
+  <section id="view-main" class="view-main" hidden>
+    <div id="tabs" class="tabs" role="tablist" aria-label="Tables and requests"></div>
+    <div id="panels" class="panels">
+
+      <section id="panel-requests" class="tab-panel requests" role="tabpanel" aria-labelledby="tab-requests" tabindex="-1" hidden>
+
+        <section class="card" aria-labelledby="h-export">
+          <h2 id="h-export">1. Export workbook</h2>
+          <p class="hint">Writes the Excel workbook in which the teams enter their requests.</p>
+          <form id="export-form">
+            <label for="export-target">Workbook path</label>
+            <div class="row">
+              <input id="export-target" type="text" class="grow" autocomplete="off" spellcheck="false">
+              <button type="submit" id="btn-export" class="btn">Export</button>
+            </div>
+          </form>
+          <p id="export-result" class="result" role="status" hidden></p>
+        </section>
+
+        <section class="card" aria-labelledby="h-import">
+          <h2 id="h-import">2. Import workbooks</h2>
+          <div id="drop-zone" class="drop-zone">
+            <p>Drop one or more .xlsx workbooks here, or</p>
+            <label for="file-input" class="btn file-label">Choose files</label>
+            <input id="file-input" type="file" class="visually-hidden" accept=".xlsx" multiple>
+          </div>
+          <ul id="file-list" class="file-list" aria-label="Chosen workbooks"></ul>
+          <button type="button" id="btn-validate-files" class="btn btn-primary" disabled>Validate workbooks</button>
+        </section>
+
+        <section class="card" aria-labelledby="h-form">
+          <h2 id="h-form">3. Request form</h2>
+          <p class="hint">Enter a request by hand instead of in Excel. Every request adds something new.</p>
+          <form id="request-form">
+            <div class="field">
+              <label for="form-kind">Kind of request</label>
+              <select id="form-kind"></select>
+            </div>
+            <div id="form-fields" class="form-grid"></div>
+            <div id="form-children" class="children" hidden>
+              <h3 id="children-title"></h3>
+              <div id="children-rows"></div>
+              <button type="button" id="btn-add-child" class="btn">Add element row</button>
+            </div>
+            <p id="form-error" class="field-error" role="alert" hidden></p>
+            <div class="row">
+              <button type="submit" id="btn-add-request" class="btn">Add to list</button>
+              <button type="button" id="btn-cancel-edit" class="btn btn-quiet" hidden>Cancel edit</button>
+            </div>
+          </form>
+          <h3>Requests in the list <span id="form-count" class="count-note"></span></h3>
+          <p id="form-list-empty" class="hint">The list is empty.</p>
+          <div class="table-wrap">
+            <table id="form-list" class="plain-table" hidden>
+              <thead><tr><th scope="col">#</th><th scope="col">Kind</th><th scope="col">Request</th><th scope="col">Requester</th><th scope="col">Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button type="button" id="btn-validate-form" class="btn btn-primary" disabled>Validate list</button>
+        </section>
+
+        <section class="card" aria-labelledby="h-results">
+          <h2 id="h-results">4. Results of the last validation</h2>
+          <p id="results-empty" class="hint">Nothing has been validated yet.</p>
+          <div id="results" hidden>
+            <div id="status-filter" class="chips" role="group" aria-label="Filter the requests by status"></div>
+            <div class="table-wrap results-wrap">
+              <table id="results-table" class="plain-table">
+                <thead><tr><th scope="col">Status</th><th scope="col">Request</th><th scope="col">Source</th><th scope="col">Reasons</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <p id="results-note" class="hint" hidden></p>
+            <h3>General findings</h3>
+            <ul id="validation-findings" class="findings"></ul>
+            <h3>Plan: what apply would change</h3>
+            <ul id="plan-files" class="plan-files"></ul>
+            <pre id="plan-preview" class="log" tabindex="0" aria-label="Plan preview"></pre>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="h-apply">
+          <h2 id="h-apply">5. Apply</h2>
+          <p id="apply-blockers" class="hint" role="status"></p>
+          <button type="button" id="btn-apply" class="btn btn-primary" disabled>Apply accepted requests</button>
+          <div id="apply-log-box" hidden>
+            <h3>Job log</h3>
+            <pre id="apply-log" class="log" tabindex="0" aria-label="Log of the apply job"></pre>
+          </div>
+          <div id="apply-result" class="result" role="status" hidden></div>
+        </section>
+
+      </section>
+    </div>
+  </section>
+</main>
+
+<dialog id="confirm-dialog" aria-labelledby="confirm-title">
+  <h2 id="confirm-title">Confirm</h2>
+  <p id="confirm-text"></p>
+  <div class="row end">
+    <button type="button" id="confirm-cancel" class="btn">Cancel</button>
+    <button type="button" id="confirm-ok" class="btn btn-primary">OK</button>
+  </div>
+</dialog>
+
+<script src="/static/api.js"></script>
+<script src="/static/table.js"></script>
+<script src="/static/requests.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
