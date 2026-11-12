@@ -452,6 +452,7 @@ def test_request_form_suggests_ports_and_runnables_of_the_chosen_swc(
     page.fill("#f-swc", "SwcB")
     page.locator("#f-swc").blur()
     expect(page.locator("#dl-suggest-f-port option")).to_have_count(2)
+    expect(page.locator("#dl-suggest-f-runnable option")).to_have_count(2)
     values = page.locator("#dl-suggest-f-runnable option").evaluate_all("o => o.map(x => x.value)")
     assert values == ["PpDiag_ReadDtc", "RunB_OnSpeed"]
     page.fill("#f-runnable", "RunB_OnSpeed")

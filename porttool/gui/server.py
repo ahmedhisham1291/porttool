@@ -634,8 +634,20 @@ class GuiApp:
         if blockers:
             code = "recovery-needed" if recovery else "stale" if stale else "nothing-to-apply"
             raise ApiError(409, code, " ".join(blockers))
-        result = self._start(self._service.start_apply)
-        self._applied = outcome
+
+        def starter() -> str:
+            # Checked again under the start lock: two clicks at once start one apply.
+            if outcome is self._applied:
+                raise ApiError(
+                    409,
+                    "nothing-to-apply",
+                    "These requests were already sent to apply: validate again.",
+                )
+            job_id = self._service.start_apply()
+            self._applied = outcome
+            return job_id
+
+        result = self._start(starter)
         result["accepted"] = accepted
         return result
 
@@ -756,12 +768,13 @@ class GuiApp:
         model = self._service.model()
         if tables is None or model is None:
             return result
-        result["lists"] = tables.lists
         swc = (params.get("swc") or [""])[-1]
+        prototype = (params.get("prototype") or [""])[-1]
+        if not swc and not prototype:
+            result["lists"] = tables.lists  # the long lists only when no detail is asked for
         if swc:
             path = tables.swc_paths.get(swc, swc)
             result["swc"] = {"name": swc, **swc_details(model, path)}
-        prototype = (params.get("prototype") or [""])[-1]
         if prototype:
             names: set[str] = set()
             for type_path in tables.prototype_types.get(prototype, ()):

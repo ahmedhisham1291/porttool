@@ -887,6 +887,7 @@ def test_lists_details_of_an_swc_and_a_prototype(client: Client) -> None:
         "ports": ["PpDiag", "RpSpeed"],
         "runnables": ["PpDiag_ReadDtc", "RunB_OnSpeed"],
     }
+    assert client.ok("/api/lists?swc=SwcB")["lists"] == {}  # no long lists with a detail
     assert client.ok("/api/lists?swc=Nobody")["swc"]["ports"] == []
     prototype = client.ok("/api/lists?prototype=SwcA")["prototype"]
     assert prototype == {"name": "SwcA", "ports": ["PpSpeed", "RpDiag", "RpTorque"]}
