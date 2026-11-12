@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import stat
@@ -20,7 +21,7 @@ from porttool.core.interfaces import JobContext, Journal, PlannedFile, WriteOutc
 from porttool.core.models import Model
 from porttool.core.operations import AnyOperation, ChangeSet, Route
 from porttool.core.results import Finding, Severity
-from porttool.writer import codes
+from porttool.writer import codes, delta
 from porttool.writer.dcf import register_new_file_in_dcf
 from porttool.writer.session import FAILED, PLANNED, Session, op_finding
 from porttool.writer.settings import WriterSettings
@@ -294,7 +295,64 @@ class ArxmlWriter:
     def build_delta(
         self, model: Model, config: ProjectConfig, change_set: ChangeSet, target: Path
     ) -> tuple[Finding, ...]:
-        raise NotImplementedError
+        """Write one ARXML file with every element the change set touches, complete.
+
+        Operations of every route are used, and owners are not checked: the file is for
+        DVImEx or for the owner of a model. Nothing in the workspace is written.
+        Blocking: call it through ``run_blocking``.
+        """
+        settings, findings_of_settings = WriterSettings.from_config(config)
+        # everything goes into the one delta file, whatever the placement setting says
+        settings = dataclasses.replace(settings, new_object_placement="existing_file")
+        session = Session(
+            model, config, settings, strict=False, delta=True, uuid_factory=self._uuid_factory
+        )
+        session.run(change_set.operations)
+        findings = [*findings_of_settings, *session.findings]
+        data, count, delta_findings = delta.render(session)
+        findings.extend(delta_findings)
+        shown = fsutil.repo_relative(target, config.repo_root)
+        if count == 0:
+            findings.append(
+                Finding(
+                    codes.INFO_DELTA,
+                    Severity.INFO,
+                    f"No element is changed by these operations: {shown} was not written.",
+                    file=shown,
+                )
+            )
+            return tuple(findings)
+        schema, schema_findings = self._load_schema(config)
+        findings.extend(schema_findings)
+        invalid = _check_xml(shown, data, schema)
+        if invalid is not None:
+            findings.append(invalid)
+            return tuple(findings)
+        try:
+            os.makedirs(fsutil.long_path(target.parent), exist_ok=True)
+            fsutil.atomic_write_bytes(
+                target, data, retries=self._retries, backoff_s=self._backoff_s
+            )
+        except (OSError, fsutil.FileWriteError) as error:
+            message = error.user_message if isinstance(error, fsutil.FileWriteError) else str(error)
+            findings.append(
+                Finding(
+                    codes.DELTA_WRITE,
+                    Severity.ERROR,
+                    f"The delta file {shown} could not be written: {message}",
+                    file=shown,
+                )
+            )
+            return tuple(findings)
+        findings.append(
+            Finding(
+                codes.INFO_DELTA,
+                Severity.INFO,
+                f"Delta with {count} element(s) written to {shown}.",
+                file=shown,
+            )
+        )
+        return tuple(findings)
 
 
 # --------------------------------------------------------------------------- checks

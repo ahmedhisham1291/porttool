@@ -455,6 +455,10 @@ class Session:
         self._parts_cache[path] = found
         return found
 
+    def known_parts(self, path: str) -> list[tuple[Document, Node]]:
+        """The parts of a component type that this session has located (no file access)."""
+        return self._parts_cache.get(path, [])
+
     def _scan(self, path: str, tried: Sequence[str]) -> list[tuple[Document, Node]]:
         """Look for ``path`` in every other ARXML file of the model (rare fallback)."""
         name = _last(path)
