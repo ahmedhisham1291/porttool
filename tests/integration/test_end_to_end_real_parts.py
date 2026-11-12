@@ -96,6 +96,28 @@ def _requests(repo: Repo) -> tuple[list[Request], dict[str, str]]:
     return requests, names
 
 
+def _edit_large(service: PortToolService, folder: Path, requests: list[Request]) -> Path:
+    """Like edited_workbook, for sheets with tens of thousands of rows."""
+    import openpyxl
+
+    from porttool.core.sheets import COLUMNS
+
+    exported = folder / "exported.xlsx"
+    assert service.wait(service.start_export(exported), 300).state == "done"
+    workbook = openpyxl.load_workbook(exported)
+    for sheet, cells in requests:
+        worksheet = workbook[sheet.value]
+        keys = [column.key for column in COLUMNS[sheet]]
+        blank = worksheet.max_row + 1
+        while blank > 2 and worksheet.cell(blank - 1, 2).value is None:
+            blank -= 1
+        for key, value in {"action": "ADD", "requester": "Team1", **cells}.items():
+            worksheet.cell(blank, keys.index(key) + 1).value = value
+    edited = folder / "edited.xlsx"
+    workbook.save(edited)
+    return edited
+
+
 def _explain(service: PortToolService) -> str:
     outcome = service.last_validation()
     lines = []
@@ -261,7 +283,7 @@ def test_real_parts_dry_run_on_the_large_repo_is_quick(tmp_path: Path) -> None:
         loaded = time.perf_counter() - started
         requests, _names = _requests(repo)
         started = time.perf_counter()
-        workbook = edited_workbook(service, tmp_path, requests)
+        workbook = _edit_large(service, tmp_path, requests)
         exported = time.perf_counter() - started
         started = time.perf_counter()
         assert _run(service, service.start_dry_run([workbook])).state == "done"
