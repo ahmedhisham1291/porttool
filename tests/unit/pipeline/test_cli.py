@@ -208,7 +208,9 @@ def test_ctrl_c_during_an_apply_cancels_it_rolls_back_and_exits_with_2(
     workbook = _workbook(repo, tmp_path, PORT_REQUEST)
     before = repo.snapshot()
     monkeypatch.setattr(service_module, "build_service", build)
-    real_sleep = cli.time.sleep
+    import time
+
+    real_sleep = time.sleep
 
     def sleep(seconds: float) -> None:
         if armed.is_set() and not interrupted.is_set():
@@ -216,7 +218,7 @@ def test_ctrl_c_during_an_apply_cancels_it_rolls_back_and_exits_with_2(
             raise KeyboardInterrupt
         real_sleep(seconds)
 
-    monkeypatch.setattr(cli.time, "sleep", sleep)
+    monkeypatch.setattr(time, "sleep", sleep)
     result = CliRunner().invoke(group, ["apply", "--repo", str(repo.root), "--yes", str(workbook)])
     assert result.exit_code == 2, result.output
     assert "Cancelling" in result.output and "Cancelled." in result.output

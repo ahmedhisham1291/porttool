@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from porttool.core.pending import PendingQueue
@@ -305,6 +306,7 @@ def test_wait_for_an_unknown_job_is_a_clear_error(harness: Harness) -> None:
 def test_service_is_thread_safe_while_jobs_run_and_start_calls_return_at_once(
     harness: Harness,
 ) -> None:
+    import functools
     import threading
     import time
 
@@ -331,15 +333,15 @@ def test_service_is_thread_safe_while_jobs_run_and_start_calls_return_at_once(
         thread.start()
     try:
         slowest = 0.0
-        for _round in range(3):
-            for start in (
+        for number in range(3):
+            rows = [port_row("Swc1", f"PpT{number}", "P", "IfSig1")]
+            starts: list[Callable[[], str]] = [
                 service.start_load,
-                lambda: service.start_dry_run_rows(
-                    [port_row("Swc1", f"PpT{_round}", "P", "IfSig1")]
-                ),
+                functools.partial(service.start_dry_run_rows, rows),
                 service.start_apply,
                 service.start_doctor,
-            ):
+            ]
+            for start in starts:
                 begun = time.perf_counter()
                 job_id = start()
                 slowest = max(slowest, time.perf_counter() - begun)

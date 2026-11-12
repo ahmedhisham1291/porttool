@@ -192,8 +192,14 @@ def test_journal_refuses_use_after_close_and_reports_unusable_folders(tmp_path: 
     with pytest.raises(RepoStateError, match="cannot be created"):
         ApplyJournal.create(blocker / "sub", repo_root=tmp_path, original_branch="main",
                             original_commit="a" * 40, tracked=[], tool_version="t")  # fmt: skip
-    journal = ApplyJournal.create(tmp_path / "j", repo_root=tmp_path, original_branch=None,
-                                  original_commit="a" * 40, tracked=[], tool_version="t")  # fmt: skip
+    journal = ApplyJournal.create(
+        tmp_path / "j",
+        repo_root=tmp_path,
+        original_branch=None,
+        original_commit="a" * 40,
+        tracked=[],
+        tool_version="t",
+    )
     (tmp_path / "untracked.txt").write_text("precious", encoding="utf-8")
     journal.record("untracked.txt", "modify")
     journal.record("untracked.txt", "modify")  # a second record changes nothing
@@ -236,7 +242,7 @@ def test_remove_file_handles_read_only_files_folders_and_refusals(
             raise PermissionError(13, "Access is denied")
         real_unlink(path)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(restore.os, "unlink", refuse_once)
+    monkeypatch.setattr(os, "unlink", refuse_once)
     assert restore._remove_file(target) is True and not target.exists() and len(calls) == 2
 
     target.write_text("x", encoding="utf-8")
@@ -244,7 +250,7 @@ def test_remove_file_handles_read_only_files_folders_and_refusals(
     def refuse(path: object) -> None:
         raise PermissionError(32, "The process cannot access the file")
 
-    monkeypatch.setattr(restore.os, "unlink", refuse)
+    monkeypatch.setattr(os, "unlink", refuse)
     with pytest.raises(WriteError, match="could not be removed during the rollback"):
         restore._remove_file(target)
 
