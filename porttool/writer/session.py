@@ -53,6 +53,7 @@ from porttool.core.operations import (
 )
 from porttool.core.results import Finding, RowRef, Severity
 from porttool.writer import codes, order, templates
+from porttool.writer.events import event_message
 from porttool.writer.settings import WriterSettings
 from porttool.writer.xmltext import Document, Node, XmlIndexError, element
 
@@ -1019,8 +1020,7 @@ class Session:
                 op,
                 codes.INFO_EVENT,
                 Severity.INFO,
-                f"Created {tag} {path} for runnable {runnable.name}; requested task: "
-                f"{op.task or 'none'}; after event: {op.position_after_event or 'none'}.",
+                event_message(tag, path, runnable.name, op.task, op.position_after_event),
                 path,
                 document.rel_path,
             )
