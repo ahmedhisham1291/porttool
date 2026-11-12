@@ -15,7 +15,7 @@ from porttool.core.config import ToolTimeouts
 from porttool.core.errors import LicenseError, ToolTimeoutError
 from porttool.core.interfaces import DaVinciRunner, ToolResult
 from porttool.core.results import Severity
-from porttool.davinci import DaVinciToolRunner
+from porttool.davinci import DaVinciToolRunner, write_script_request
 from porttool.davinci.runner import timeout_for
 from tests.fakes import FAKE_SCRIPT
 from tests.unit.davinci.helpers import (
@@ -143,7 +143,7 @@ def test_script_task_gets_paths_as_arguments_and_environment(tmp_path: Path) -> 
     commands = {**fake_commands(), "script_task": [sys.executable, "-c", show, "{script_task}"]}
     runner = _runner(tmp_path, commands=commands)
     request = tmp_path / "request.json"
-    request.write_text("{}", encoding="utf-8")
+    write_script_request([], request)
     result_file = tmp_path / "result.json"
     result = run(runner.run_script_task(request, result_file, FakeCtx()))
     assert result.exit_code == 0

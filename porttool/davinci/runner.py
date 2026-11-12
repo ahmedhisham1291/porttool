@@ -34,6 +34,7 @@ from porttool.davinci.procrun import (
     run_process,
     shorten,
 )
+from porttool.davinci.script import read_script_request, read_script_result
 from porttool.davinci.settings import (
     ACTIONS,
     EXECUTABLE_KEYS,
@@ -562,6 +563,33 @@ class DaVinciToolRunner:
     async def run_script_task(
         self, request_json: Path, result_json: Path, ctx: JobContext
     ) -> ToolResult:
+        """Run the Groovy script task and judge its result file.
+
+        The result is ok only if the tool run is ok AND the result file confirms every
+        event of the request. An old result file is removed first, so a script that
+        writes nothing can never be mistaken for one that succeeded.
+        """
+        tool = TOOL_OF_ACTION["script_task"]
+        events, problems = await ctx.run_blocking(lambda: read_script_request(request_json))
+        if problems:
+            return ToolResult(tool, False, None, 0.0, None, problems)
+
+        def clear_old_result() -> None:
+            result_json.parent.mkdir(parents=True, exist_ok=True)
+            result_json.unlink(missing_ok=True)
+
+        try:
+            await ctx.run_blocking(clear_old_result)
+        except OSError as error:
+            finding = Finding(
+                "DVR-SCRIPT-RESULT-STALE",
+                Severity.ERROR,
+                f"The old script result file {result_json} cannot be removed "
+                f"({type(error).__name__}: {error}). {tool} was not started. Close the "
+                "program that holds the file open and run it again.",
+                file=str(result_json),
+            )
+            return ToolResult(tool, False, None, 0.0, None, (finding,))
         extra: dict[str, Value] = {
             "request_json": str(request_json),
             "result_json": str(result_json),
@@ -570,7 +598,18 @@ class DaVinciToolRunner:
             "PORTTOOL_REQUEST_JSON": str(request_json),
             "PORTTOOL_RESULT_JSON": str(result_json),
         }
-        return await self.run_action("script_task", extra, ctx, env)
+        result = await self.run_action("script_task", extra, ctx, env)
+        if result.exit_code is None:
+            return result  # the tool was not started: there is no result to read
+        script = await ctx.run_blocking(lambda: read_script_result(result_json, events))
+        return ToolResult(
+            tool,
+            result.ok and script.ok,
+            result.exit_code,
+            result.elapsed_s,
+            result.log_file,
+            (*result.findings, *script.findings),
+        )
 
     async def validate_project(self, ctx: JobContext) -> ToolResult:
         return await self.run_action("validate", None, ctx)

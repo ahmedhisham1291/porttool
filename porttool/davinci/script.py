@@ -169,9 +169,7 @@ def read_script_request(
         return (), (_finding("DVR-SCRIPT-REQUEST-MALFORMED", message, file=file),)
     events = [_event_from(entry) for entry in entries]
     if any(event is None for event in events):
-        message = (
-            f"The script request file {file} holds an event without event_path or task."
-        )
+        message = f"The script request file {file} holds an event without event_path or task."
         return (), (_finding("DVR-SCRIPT-REQUEST-MALFORMED", message, file=file),)
     return tuple(event for event in events if event is not None), ()
 
@@ -327,6 +325,12 @@ def read_script_result(
         remaining = solving.get("remaining_errors")
         failed = solving.get("failed")
         if (isinstance(remaining, int) and remaining > 0) or (isinstance(failed, int) and failed):
+            messages = solving.get("messages")
+            listed = (
+                " First messages: " + "; ".join(str(text) for text in messages[:5])
+                if isinstance(messages, list) and messages
+                else ""
+            )
             findings.append(
                 _finding(
                     "DVR-SCRIPT-VALIDATION",
@@ -334,7 +338,7 @@ def read_script_result(
                     f"{remaining if isinstance(remaining, int) else '?'} error(s); "
                     f"{failed if isinstance(failed, int) else 0} solving action(s) failed. "
                     "Open the project in DaVinci Configurator and look at the validation "
-                    "view.",
+                    f"view.{listed}",
                     severity=Severity.WARNING,
                     file=file,
                 )
@@ -370,8 +374,7 @@ def manual_mapping_instructions(events: Sequence[ScriptEvent]) -> list[str]:
     if not events:
         return ["No event has to be mapped to a task."]
     lines = [
-        f"Map {len(events)} new RTE event(s) to their task(s) by hand in DaVinci "
-        "Configurator:",
+        f"Map {len(events)} new RTE event(s) to their task(s) by hand in DaVinci Configurator:",
         "1. Close DaVinci Developer. Open the project file (.dpa) in DaVinci Configurator "
         "and wait until the workspace changes have been read in (the Configurator "
         "updates its input files when the project is loaded).",
