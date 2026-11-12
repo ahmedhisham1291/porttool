@@ -114,7 +114,8 @@ class ArxmlWriter:
                     del outputs[rel_path]
                 break
         prepared = _Prepared(session, outputs)
-        prepared.findings = [*setting_findings, *schema_findings, *session.findings, *refused]
+        # a refused file first, then what follows from it (operations that needed its content)
+        prepared.findings = [*setting_findings, *schema_findings, *refused, *session.findings]
         return prepared
 
     def _preflight(

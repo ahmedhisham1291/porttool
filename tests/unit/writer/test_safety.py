@@ -265,9 +265,7 @@ def test_cancel_before_anything_is_written(small: Repo) -> None:
     assert small.snapshot() == before and not small.journal.entries
 
 
-def test_failure_after_some_files_are_written(
-    small: Repo, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failure_after_some_files_are_written(small: Repo, monkeypatch: pytest.MonkeyPatch) -> None:
     real_write = fsutil.atomic_write_bytes
 
     def write(path: object, data: bytes, **more: object) -> None:
@@ -382,14 +380,12 @@ def test_name_already_used(small: Repo) -> None:
 def test_well_formedness_is_checked_before_a_file_is_replaced(
     small: Repo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from porttool.writer import templates
+    from porttool.writer.xmltext import Node, named
 
-    real = templates.named
+    def broken(tag: str, name: str, *children: Node | None, uuid: str | None = None) -> Node:
+        return named("BAD TAG" if tag == "R-PORT-PROTOTYPE" else tag, name, *children, uuid=uuid)
 
-    def broken(tag: str, name: str, *children: object, uuid: str | None = None) -> object:
-        return real("BAD TAG" if tag == "R-PORT-PROTOTYPE" else tag, name, *children, uuid=uuid)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(templates, "named", broken)
+    monkeypatch.setattr("porttool.writer.templates.named", broken)
     before = small.snapshot()
     outcome = small.apply(*THREE_FILES)
     assert codes_of(outcome.findings) == [codes.NOT_WELL_FORMED, codes.DEPENDS, codes.REF_MISSING]
