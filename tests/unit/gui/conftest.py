@@ -5,6 +5,8 @@ from __future__ import annotations
 import http.client
 import io
 import json
+import os
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
@@ -12,6 +14,7 @@ from typing import Any
 
 import openpyxl
 import pytest
+from playwright.sync_api import Browser, ConsoleMessage, Page, Playwright, sync_playwright
 
 from porttool.core.models import Model
 from porttool.gui import TOKEN_HEADER, GuiSettings, ServerHandle, serve
@@ -191,3 +194,73 @@ def client(start_server: Starter) -> Client:
     _, started = start_server()
     started.wait_tables()
     return started
+
+
+# --------------------------------------------------------------------------- browser
+
+
+class BrowserTab:
+    """One page in headless Chrome. Collects console errors and page errors."""
+
+    def __init__(self, page: Page) -> None:
+        self.page = page
+        self.problems: list[str] = []
+        self.allowed: list[str] = []
+        page.on("console", self._on_console)
+        page.on("pageerror", lambda error: self.problems.append(f"pageerror: {error}"))
+
+    def _on_console(self, message: ConsoleMessage) -> None:
+        if message.type == "error":
+            self.problems.append(f"console error: {message.text}")
+
+    def allow(self, pattern: str) -> None:
+        """Declare an expected console error (a regular expression), e.g. a provoked HTTP 409."""
+        self.allowed.append(pattern)
+
+    def unexpected(self) -> list[str]:
+        return [p for p in self.problems if not any(re.search(a, p) for a in self.allowed)]
+
+
+def _launch(manager: Playwright) -> Browser:
+    chrome = "/usr/bin/google-chrome"
+    if os.path.exists(chrome):
+        return manager.chromium.launch(executable_path=chrome, args=["--no-sandbox"], headless=True)
+    return manager.chromium.launch(channel="chrome", args=["--no-sandbox"], headless=True)
+
+
+@pytest.fixture(scope="session")
+def browser() -> Iterator[Browser]:
+    """Headless system Chrome; the browser tests are skipped when it cannot start."""
+    manager = sync_playwright().start()
+    try:
+        launched = _launch(manager)
+    except Exception as error:  # noqa: BLE001 - any start-up failure means: skip
+        manager.stop()
+        pytest.skip(f"Chrome cannot be started here: {error}")
+    yield launched
+    launched.close()
+    manager.stop()
+
+
+TabOpener = Callable[..., BrowserTab]
+
+
+@pytest.fixture
+def open_tab(browser: Browser) -> Iterator[TabOpener]:
+    """Factory: ``tab = open_tab(client)``. Any console or page error fails the test."""
+    tabs: list[BrowserTab] = []
+
+    def open_page(client: Client, width: int = 1280, height: int = 800) -> BrowserTab:
+        context = browser.new_context(viewport={"width": width, "height": height})
+        page = context.new_page()
+        page.set_default_timeout(15000)
+        tab = BrowserTab(page)
+        tabs.append(tab)
+        page.goto(client.handle.url)
+        return tab
+
+    yield open_page
+    problems = [problem for tab in tabs for problem in tab.unexpected()]
+    for tab in tabs:
+        tab.page.context.close()
+    assert not problems, f"JavaScript errors on the page: {problems}"
