@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import logging
 import statistics
 import threading
@@ -12,11 +13,14 @@ from typing import Any
 import pytest
 
 from porttool.core.errors import ConfigError, GitError, RepoStateError
-from porttool.core.models import Model
+from porttool.core.models import Model, PortDirection
+from porttool.core.operations import AddPort
+from porttool.core.pending import PendingEntry, PendingQueue, PendingState
 from porttool.core.sheets import COLUMNS, Sheet
-from porttool.gui import GuiSettings
+from porttool.gui import TOKEN_HEADER, GuiSettings, serve
 from porttool.gui.tables import TABLE_DEF_BY_NAME, TABLE_DEFS, build_tables
 from tests.unit.gui.conftest import Client, Starter, multipart, xlsx_bytes
+from tests.unit.gui.fake_service import FakeService
 
 TABLE_NAMES = [
     "components",
@@ -950,3 +954,125 @@ def test_unexpected_error_is_a_generic_500_with_the_traceback_in_the_log(
     logged = [record for record in caplog.records if record.exc_info]
     assert logged and "RuntimeError" in str(logged[0].exc_info)
     assert client.ok("/api/state")["model_loaded"] is True
+
+
+# --------------------------------------------------------------------------- background work
+
+
+def test_pending_table_reads_the_queue_file_of_the_repo(
+    start_server: Starter, tmp_path: Path
+) -> None:
+    queue = PendingQueue(
+        entries=(
+            PendingEntry(
+                operation=AddPort(
+                    id="op-1",
+                    swc_path="/ComponentTypes/SwcM",
+                    name="PpHeld",
+                    direction=PortDirection.P,
+                    interface_path="/PortInterfaces/IfSpeed",
+                    requester="Omar",
+                ),
+                state=PendingState.ON_HOLD,
+                created_utc="2026-11-01T08:00:00Z",
+                depends_on=("/PortInterfaces/IfNew",),
+                note="waits for the interface",
+            ),
+        )
+    )
+    (tmp_path / "porttool").mkdir()
+    (tmp_path / "porttool" / "pending.json").write_text(queue.to_json(), encoding="utf-8")
+    _, client = start_server(repo=tmp_path)
+    client.wait_tables()
+    page = client.ok("/api/tables/pending")
+    assert page["rows"] == [
+        [
+            "on hold",
+            "add_port",
+            "/ComponentTypes/SwcM/PpHeld",
+            "Omar",
+            "2026-11-01T08:00:00Z",
+            "",
+            "/PortInterfaces/IfNew",
+            "waits for the interface",
+        ]
+    ]
+    assert "note" not in page
+    client.wait_job(client.start("/api/dry-run/rows", {"rows": [PORT_ROW]}))
+    assert client.ok("/api/tables/pending")["total"] == 0  # the dry run's queue replaces it
+
+
+def test_unreadable_pending_file_is_reported_not_fatal(
+    start_server: Starter, tmp_path: Path
+) -> None:
+    (tmp_path / "porttool").mkdir()
+    (tmp_path / "porttool" / "pending.json").write_text("{ not json", encoding="utf-8")
+    _, client = start_server(repo=tmp_path)
+    client.wait_tables()
+    page = client.ok("/api/tables/pending")
+    assert page["total"] == 0 and "could not be read" in page["note"]
+    assert client.ok("/api/tables/ports")["total"] == 6
+
+
+def test_failing_stale_check_is_logged_once_and_the_server_keeps_working(
+    start_server: Starter, caplog: pytest.LogCaptureFixture
+) -> None:
+    service, client = start_server()
+    with caplog.at_level(logging.ERROR, logger="porttool.gui.server"):
+        service.stale_error = OSError("the network drive is gone")
+        time.sleep(0.6)  # several check intervals of 0.1 s
+        state = client.ok("/api/state")
+    assert state["stale"] is False and state["model_loaded"] is True
+    failures = [r for r in caplog.records if "check for changed files failed" in r.getMessage()]
+    assert len(failures) == 1 and failures[0].exc_info is not None
+    service.stale_error = None
+    service.stale = True
+    deadline = time.monotonic() + 5
+    while not client.ok("/api/state")["stale"] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert client.ok("/api/state")["stale"] is True
+
+
+def test_tables_that_cannot_be_prepared_report_an_error(
+    start_server: Starter, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(*args: object) -> None:
+        raise RuntimeError("row builder bug")
+
+    monkeypatch.setattr("porttool.gui.server.build_tables", broken)
+    with caplog.at_level(logging.ERROR, logger="porttool.gui.server"):
+        _, client = start_server()
+        deadline = time.monotonic() + 5
+        while client.ok("/api/state")["tables"] == "preparing" and time.monotonic() < deadline:
+            time.sleep(0.02)
+    assert client.ok("/api/state")["tables"] == "failed"
+    for path in ("/api/tables", "/api/tables/ports", "/api/lists"):
+        reply = client.get(path)
+        assert (reply.status, reply.error_code) == (500, "tables-failed"), path
+        assert b"row builder bug" not in reply.body
+    assert sum("could not be prepared" in r.getMessage() for r in caplog.records) == 1
+    assert client.ok("/api/form")["action"] == "ADD"
+
+
+def test_requests_on_an_open_connection_are_refused_after_close() -> None:
+    service = FakeService()
+    handle = serve(service, open_browser=False)
+    headers = {"Host": f"127.0.0.1:{handle.port}", TOKEN_HEADER: handle.token}
+    connection = http.client.HTTPConnection("127.0.0.1", handle.port, timeout=10)
+    try:
+        connection.request("GET", "/api/state", headers=headers)
+        first = connection.getresponse()
+        first.read()
+        assert first.status == 200 and first.getheader("Connection") != "close"
+        handle.close()
+        try:
+            connection.request("GET", "/api/state", headers=headers)
+            second = connection.getresponse()
+            body = second.read()
+        except (http.client.HTTPException, OSError):
+            return  # the connection was dropped: also fine
+        assert second.status == 503 and b'"stopped"' in body
+        assert second.getheader("Connection") == "close"
+    finally:
+        connection.close()
+        service.close()

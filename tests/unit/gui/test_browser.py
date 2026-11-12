@@ -363,6 +363,22 @@ def test_a_job_failure_is_shown_with_the_log_path(
     expect(page.locator("#btn-reload")).to_be_enabled()
 
 
+def test_page_says_when_porttool_was_stopped(start_server: Starter, open_tab: TabOpener) -> None:
+    _, client = start_server()
+    tab = open_tab(client)
+    page = tab.page
+    expect(body_rows(page, "ports")).to_have_count(6)
+    tab.allow(r"Failed to load resource: net::ERR_")
+    tab.allow(HTTP_ERROR)
+    client.handle.close()
+    message = page.locator("#messages .msg-error")
+    expect(message).to_contain_text("PortTool does not answer")
+    expect(message).to_have_count(1)
+    page.wait_for_timeout(2000)  # further failed polls do not add more messages
+    expect(page.locator("#messages .msg")).to_have_count(1)
+    expect(body_rows(page, "ports")).to_have_count(6)  # what was loaded stays readable
+
+
 # --------------------------------------------------------------------------- requests tab
 
 

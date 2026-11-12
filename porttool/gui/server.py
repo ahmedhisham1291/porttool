@@ -358,6 +358,10 @@ class GuiApp:
         self._closed.set()
         self._wake.set()
 
+    @property
+    def closed(self) -> bool:
+        return self._closed.is_set()
+
     def _current_flags(self, model: Model | None) -> tuple[bool, bool]:
         flags = self._flags
         model_hash = model.model_hash if model is not None else None
@@ -478,8 +482,11 @@ class GuiApp:
         tables_status = "no-model"
         model_json: dict[str, object] | None = None
         if model is not None:
-            ready = self._cache.get(model, config, self.settings().partner_limit)
-            tables_status = "ready" if ready is not None else "preparing"
+            try:
+                ready = self._cache.get(model, config, self.settings().partner_limit)
+                tables_status = "ready" if ready is not None else "preparing"
+            except ApiError:  # reported by the table calls; the state must stay readable
+                tables_status = "failed"
             model_json = {
                 "hash": model.model_hash,
                 "baseline_commit": model.baseline_commit,
@@ -1015,6 +1022,10 @@ class _Handler(BaseHTTPRequestHandler):
         return origin.strip().lower() in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
 
     def _handle(self, method: str) -> None:
+        if self._app.closed:
+            # A browser connection that was still open when the server was closed.
+            self.close_connection = True
+            raise ApiError(503, "stopped", "PortTool was stopped. Start 'porttool gui' again.")
         if not self._host_ok():
             raise ApiError(403, "bad-host", "This address is not served by PortTool.")
         if not self._origin_ok():

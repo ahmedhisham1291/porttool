@@ -47,6 +47,11 @@ var PT = {};
           }
           if (!response.ok) {
             var error = data && data.error ? data.error : null;
+            if (error && error.code === "stopped") {
+              // An open connection answered after 'porttool gui' was stopped.
+              PT.connectionLost(true);
+              throw new ApiFailure("no-connection", error.message, response.status);
+            }
             throw new ApiFailure(
               error ? error.code : "http-" + response.status,
               error ? error.message : "The server answered with status " + response.status + ".",
