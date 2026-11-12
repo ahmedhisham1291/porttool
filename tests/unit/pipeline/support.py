@@ -566,3 +566,39 @@ def wait_until(condition: Callable[[], bool], timeout: float = 30.0) -> None:
         if time.monotonic() > deadline:
             raise AssertionError("condition was not met in time")
         time.sleep(0.01)
+
+
+def edited_workbook(
+    service: PortToolService, folder: Path, requests: Sequence[tuple[Sheet, Mapping[str, str]]]
+) -> Path:
+    """Export the workbook, type the given request rows into blank rows, save a copy."""
+    import openpyxl
+
+    exported = folder / "exported.xlsx"
+    assert service.wait(service.start_export(exported), 120).state == "done"
+    workbook = openpyxl.load_workbook(exported)
+    for sheet, cells in requests:
+        worksheet = workbook[sheet.value]
+        keys = [column.key for column in COLUMNS[sheet]]
+        blank = next(n for n in range(2, 5000) if worksheet.cell(n, 2).value is None)
+        for key, value in {"action": "ADD", "requester": "Team1", **cells}.items():
+            worksheet.cell(blank, keys.index(key) + 1).value = value
+    edited = folder / "edited.xlsx"
+    workbook.save(edited)
+    return edited
+
+
+PORT_REQUEST: tuple[Sheet, Mapping[str, str]] = (
+    Sheet.PORTS,
+    {"swc": "Swc1", "port": "PpCli", "direction": "P", "interface": "IfSig1", "init_value": "none"},
+)
+BAD_REQUEST: tuple[Sheet, Mapping[str, str]] = (
+    Sheet.PORTS,
+    {
+        "swc": "Swc1",
+        "port": "bad name!",
+        "direction": "P",
+        "interface": "IfSig1",
+        "init_value": "none",
+    },  # fmt: skip
+)
