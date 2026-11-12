@@ -383,7 +383,8 @@ def test_two_runs_requested_at_once_are_serialised_by_the_lock(tmp_path: Path) -
         handles = [engine.submit(check), engine.submit(generate)]
         results = [handle.result(WAIT) for handle in handles]
     assert all(result.ok for result in results)
-    assert [record["tool"] for record in _records(tmp_path)] == ["DVWspChecker", "DVCfgCmd"]
+    # Which of the two reaches the gate first is not fixed; that they do not overlap is.
+    assert sorted(record["tool"] for record in _records(tmp_path)) == ["DVCfgCmd", "DVWspChecker"]
     (first_start, first_end), (second_start, second_end) = sorted(spans)
     assert first_end - first_start >= 0.5 and second_end - second_start >= 0.5
     assert second_start >= first_end - 0.05  # the second tool started after the first ended
