@@ -228,9 +228,13 @@ def _launch(manager: Playwright) -> Browser:
     return manager.chromium.launch(channel="chrome", args=["--no-sandbox"], headless=True)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def browser() -> Iterator[Browser]:
-    """Headless system Chrome; the browser tests are skipped when it cannot start."""
+    """Headless system Chrome; the browser tests are skipped when it cannot start.
+
+    Module scope on purpose: Playwright's sync API keeps an event loop running in the main
+    thread while it is alive, and tests that call asyncio.run() afterwards would fail.
+    """
     manager = sync_playwright().start()
     try:
         launched = _launch(manager)

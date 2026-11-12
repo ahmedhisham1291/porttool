@@ -210,9 +210,7 @@ def test_tool_hangs_with_no_output_timeout_kills_it(tmp_path: Path) -> None:
 
 def test_timeout_kills_the_child_of_the_tool_too(tmp_path: Path) -> None:
     pid_file = tmp_path / "child.pid"
-    request = _request(
-        tmp_path, hang=True, spawn_child_s=60, child_pid_file=pid_file, timeout=1.0
-    )
+    request = _request(tmp_path, hang=True, spawn_child_s=60, child_pid_file=pid_file, timeout=1.0)
     with pytest.raises(ToolTimeoutError) as caught:
         run(run_process(request, FakeCtx()))
     child = int(pid_file.read_text(encoding="utf-8"))

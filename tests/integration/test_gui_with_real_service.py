@@ -70,7 +70,8 @@ def test_gui_api_full_cycle_on_the_real_service(tmp_path: Path) -> None:
 
 
 def test_gui_page_shows_the_real_repo_without_console_errors(
-    tmp_path: Path, open_tab: TabOpener
+    tmp_path: Path,
+    open_tab: TabOpener,  # noqa: F811 - the imported fixture
 ) -> None:
     repo = make_repo(tmp_path / "repo", tmp_path / "home")
     service = build_service(
