@@ -81,22 +81,17 @@ async def run_uncancellable(executor: Executor, fn: Callable[[], _R]) -> _R:
 
     A rollback must finish once it has started. ``JobContext.run_blocking`` refuses to
     start work for a cancelled job, so restoration runs through this helper instead.
-    A cancellation that arrives while waiting is raised after ``fn`` has returned.
+    A cancellation that arrives while waiting is absorbed: the caller holds the reason
+    for the rollback and decides how the job ends.
     """
     loop = asyncio.get_running_loop()
     future = loop.run_in_executor(executor, fn)
-    cancelled = False
     while True:
         try:
-            result = await asyncio.shield(future)
-            break
+            return await asyncio.shield(future)
         except asyncio.CancelledError:
             if future.done():
-                raise
-            cancelled = True
-    if cancelled:
-        raise asyncio.CancelledError()
-    return result
+                return future.result()
 
 
 def count_by_severity(findings: tuple[Finding, ...] | list[Finding]) -> Mapping[str, int]:
