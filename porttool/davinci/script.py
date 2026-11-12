@@ -374,7 +374,9 @@ def manual_mapping_instructions(events: Sequence[ScriptEvent]) -> list[str]:
     if not events:
         return ["No event has to be mapped to a task."]
     lines = [
-        f"Map {len(events)} new RTE event(s) to their task(s) by hand in DaVinci Configurator:",
+        f"Map {len(events)} new RTE event(s) to their task(s) by hand in DaVinci "
+        "Configurator. The names of editors and menus below were written from memory and "
+        "can differ in your version; the events, tasks and positions are exact.",
         "1. Close DaVinci Developer. Open the project file (.dpa) in DaVinci Configurator. "
         "If your project needs a step that takes over changes of the Developer workspace "
         "(for example updating the input files), do it now, so that the new events are "
