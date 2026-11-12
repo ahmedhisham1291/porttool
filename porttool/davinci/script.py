@@ -375,9 +375,10 @@ def manual_mapping_instructions(events: Sequence[ScriptEvent]) -> list[str]:
         return ["No event has to be mapped to a task."]
     lines = [
         f"Map {len(events)} new RTE event(s) to their task(s) by hand in DaVinci Configurator:",
-        "1. Close DaVinci Developer. Open the project file (.dpa) in DaVinci Configurator "
-        "and wait until the workspace changes have been read in (the Configurator "
-        "updates its input files when the project is loaded).",
+        "1. Close DaVinci Developer. Open the project file (.dpa) in DaVinci Configurator. "
+        "If your project needs a step that takes over changes of the Developer workspace "
+        "(for example updating the input files), do it now, so that the new events are "
+        "known to the Configurator.",
         "2. Open the task mapping of the RTE: Runtime System, then Task Mapping (in some "
         "versions: the Rte module in the Basic Editor, container RteSwComponentInstance, "
         "RteEventToTaskMapping).",
