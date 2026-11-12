@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from tests.unit.pipeline.support import (
+    FakeRunner,
     FakeWriter,
     Repo,
     connector_row,
@@ -22,6 +23,18 @@ from tests.unit.pipeline.support import (
 )
 
 DIED = 77
+
+
+def tool_writes(root: Path, name: str) -> None:
+    """What the fake DaVinci tools leave behind: an ECUC edit and generated files."""
+    if name == "script":
+        ecuc = root / "Config/ECUC/Synthetic_ecuc.arxml"
+        ecuc.write_text(ecuc.read_text("utf-8") + "<!-- mapped by script -->\n", "utf-8")
+    if name == "generate":
+        (root / "Appl/GenData/Rte_Type.h").write_text("/* generated again */\n", "utf-8")
+        (root / "Appl/GenData/Rte_New.h").write_text("/* new */\n", "utf-8")
+
+
 ROWS = [
     port_row("Swc1", "PpCrash", "P", "IfSig1", 1),
     port_row("Swc2", "RpCrash", "R", "IfSig1", 2),
@@ -42,7 +55,8 @@ def main(argv: list[str]) -> int:
     if phase == "file":
         writer.on_file = lambda _rel: os._exit(DIED)
     repo = Repo(root=root, env=git_env(home), truth=None)  # type: ignore[arg-type]
-    harness = make_service(repo, state, writer=writer, step_hook=hook)
+    runner = FakeRunner(on_call=lambda name: tool_writes(root, name))
+    harness = make_service(repo, state, writer=writer, runner=runner, step_hook=hook)
     harness.dry_run(ROWS)
     view = harness.apply()
     print(view.state, view.summary, view.error)

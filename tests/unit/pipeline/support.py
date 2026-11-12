@@ -31,6 +31,7 @@ from porttool.core.operations import (
     AddConnector,
     AddInterface,
     AddPort,
+    AddTrigger,
     AnyOperation,
     ChangeSet,
     DeletePort,
@@ -210,6 +211,13 @@ _CONNECTOR_XML = """\
               </REQUESTER-IREF>
             </ASSEMBLY-SW-CONNECTOR>
 """
+_TIMING_EVENT_XML = """\
+                <TIMING-EVENT>
+                  <SHORT-NAME>{name}</SHORT-NAME>
+                  <START-ON-EVENT-REF DEST="RUNNABLE-ENTITY">{runnable}</START-ON-EVENT-REF>
+                  <PERIOD>{period}</PERIOD>
+                </TIMING-EVENT>
+"""
 _INTERFACE_FILE = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
@@ -247,8 +255,8 @@ def _interface_dest(model: Model, path: str) -> str:
 class FakeWriter:
     """Edits the generated ARXML with plain text operations, journaling every file first.
 
-    Knows ``add_port``, ``delete_port``, ``add_interface`` (a new file) and
-    ``add_connector``: enough to drive every pipeline path with the real reader.
+    Knows ``add_port``, ``delete_port``, ``add_interface`` (a new file), ``add_connector``
+    and a periodic ``add_trigger``: enough to drive every pipeline path with the real reader.
     """
 
     #: Raised by ``apply`` after ``fail_after_files`` files were written.
@@ -274,7 +282,7 @@ class FakeWriter:
 
     def _target(self, model: Model, config: ProjectConfig, op: AnyOperation) -> tuple[str, str]:
         """(repo-relative file, action) of one operation."""
-        if isinstance(op, AddPort | DeletePort):
+        if isinstance(op, AddPort | DeletePort | AddTrigger):
             return model.components[op.swc_path].origin.file, "modify"
         if isinstance(op, AddConnector):
             return model.components[op.composition_path].origin.file, "modify"
@@ -296,6 +304,17 @@ class FakeWriter:
             return text.replace("          </PORTS>\n", snippet + "          </PORTS>\n", 1)
         if isinstance(op, DeletePort):
             return _remove_port(text, op.name)
+        if isinstance(op, AddTrigger):
+            runnable = model.find_runnable(op.swc_path, op.runnable_name)
+            assert runnable is not None and op.period_s is not None
+            snippet = _TIMING_EVENT_XML.format(
+                name=f"TMT_{op.runnable_name}_{op.period_s * 1000:g}ms",
+                runnable=runnable.path,
+                period=f"{op.period_s:g}",
+            )
+            return text.replace(
+                "              </EVENTS>\n", snippet + "              </EVENTS>\n", 1
+            )
         if isinstance(op, AddConnector):
             provider = model.find_prototype(op.composition_path, op.provider_prototype)
             requester = model.find_prototype(op.composition_path, op.requester_prototype)
@@ -602,3 +621,14 @@ BAD_REQUEST: tuple[Sheet, Mapping[str, str]] = (
         "init_value": "none",
     },  # fmt: skip
 )
+
+
+def trigger_row(swc: str, runnable: str, period_ms: str, number: int = 1) -> RawRequestRow:
+    return row(
+        Sheet.RUNNABLE_TRIGGERS,
+        number,
+        swc=swc,
+        runnable=runnable,
+        trigger_kind="periodic",
+        period_ms=period_ms,
+    )

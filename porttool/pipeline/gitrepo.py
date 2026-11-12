@@ -292,7 +292,11 @@ class Git:
         return self.run("cat-file", "-e", f"{commit}:./{path}", check=False).ok
 
     def is_ignored(self, path: str) -> bool:
-        return self.run("check-ignore", "--quiet", "--", path, check=False).returncode == 0
+        # check-ignore does not accept --literal-pathspecs; it takes plain paths anyway.
+        result = self.run("check-ignore", "--quiet", "--", path, check=False, literal=False)
+        if result.returncode not in (0, 1):
+            raise GitCommandError(result)
+        return result.returncode == 0
 
     def branches_like(self, prefix: str) -> frozenset[str]:
         """Local and remote-tracking branch names that contain ``prefix`` (short form)."""

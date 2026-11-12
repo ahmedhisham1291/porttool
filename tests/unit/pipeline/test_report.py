@@ -60,7 +60,9 @@ def _data(**changes: object) -> ReportData:
         operations=(port, runnable),
         applied_ids=frozenset({port.id, runnable.id}),
         findings=(
-            Finding("PIP-APPLY-007", Severity.WARNING, "DaVinci steps skipped", file="porttool.toml"),
+            Finding(
+                "PIP-APPLY-007", Severity.WARNING, "DaVinci steps skipped", file="porttool.toml"
+            ),
             Finding("X-1", Severity.INFO, EVIL, object_path="/C/Swc1"),
         ),
         timings=(
