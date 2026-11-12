@@ -94,11 +94,11 @@ OPERATIONS: tuple[AnyOperation, ...] = (
 
 def _assert_schema_order(data: bytes) -> None:
     """Children of every element with an order table appear in the order of the table."""
-    for el in etree.fromstring(data).iter():
+    for el in etree.fromstring(data).iter("{*}*"):
         table = ORDER.get(etree.QName(el).localname)
         if table is None:
             continue
-        ranks = [table.index(etree.QName(child).localname) for child in el]
+        ranks = [table.index(etree.QName(child).localname) for child in el.iterchildren("{*}*")]
         assert ranks == sorted(ranks), (etree.QName(el).localname, [c.tag for c in el])
 
 

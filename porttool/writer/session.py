@@ -335,6 +335,14 @@ class Session:
             swc_path, name
         )
         if found is None:
+            swc = self.model.components.get(swc_path)
+            if swc is not None and swc.behavior_path is None:
+                raise Skip(
+                    codes.NO_BEHAVIOR,
+                    f"{swc.name} has no internal behavior, so it has no runnable {name}. "
+                    "Create the behavior in DaVinci Developer first.",
+                    swc_path,
+                )
             raise Skip(codes.REF_MISSING, f"{_last(swc_path)} has no runnable {name}.", swc_path)
         return found
 
