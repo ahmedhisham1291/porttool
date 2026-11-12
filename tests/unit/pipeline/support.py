@@ -124,18 +124,24 @@ def make_repo(
     identity: bool = True,
     extra_toml: str = "",
     gitignore: str | None = None,
+    min_free_disk_bytes: int = 1,
+    git_root: Path | None = None,
 ) -> Repo:
-    """Generate the synthetic repo, make it a git repository and commit everything."""
+    """Generate the synthetic repo, make it a git repository and commit everything.
+
+    ``git_root``: a parent folder that becomes the git work tree instead of ``root``.
+    """
     truth = generate(root, spec)
     with open(root / "porttool.toml", "a", encoding="utf-8") as stream:
         # The sandbox disk is small and shared: do not let the free-space check decide.
-        stream.write("\n[limits]\nmin_free_disk_bytes = 1\n" + extra_toml)
+        stream.write(f"\n[limits]\nmin_free_disk_bytes = {min_free_disk_bytes}\n" + extra_toml)
     if gitignore is not None:
         (root / ".gitignore").write_text(gitignore, encoding="utf-8")
     env = git_env(home, identity=True)
-    git(root, "init", "--quiet", env=env)
-    git(root, "add", "--all", env=env)
-    git(root, "commit", "--quiet", "-m", "initial", env=env)
+    top = git_root or root
+    git(top, "init", "--quiet", env=env)
+    git(top, "add", "--all", env=env)
+    git(top, "commit", "--quiet", "-m", "initial", env=env)
     return Repo(root=root, env=git_env(home, identity=identity), truth=truth)
 
 
