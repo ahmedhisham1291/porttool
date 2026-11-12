@@ -1,0 +1,404 @@
+// =====================================================================================
+//  PortToolTasks.dvgroovy
+//
+//  EXPERIMENTAL / UNVERIFIED
+//
+//  This script has NEVER been run. It was written without DaVinci Configurator and
+//  without the automation interface documentation, from memory of how that interface
+//  looks. Expect that some calls are wrong. Do not enable the "script" step of PortTool
+//  before somebody has checked the calls below against the documentation in the SIP
+//  (the AutomationInterface documentation and the Javadoc that ship with DaVinci
+//  Configurator) and has tried the script on a COPY of the project.
+//
+//  Every call into the Configurator is isolated in one small closure of the section
+//  "CONFIGURATOR API". If a call is wrong, only that closure has to be corrected.
+//  Everything outside that section is plain Groovy and JSON handling.
+//
+//  API CALLS THAT MUST BE CHECKED (the tag is repeated at each closure):
+//   [A1]  import static com.vector.cfg.automation.api.ScriptApi.*
+//   [A2]  daVinci { scriptTask("Name", DV_PROJECT) { taskDescription "..."; code { } } }
+//   [A3]  scriptLogger.info / .warn / .error, and that their text reaches the output
+//         of DVCfgCmd (PortTool looks for the word ERROR there)
+//   [A4]  transaction { ... } around every change of the model
+//   [A5]  mdfModel(AsrPath.create("/ActiveEcuC/<Module>")) to get a module configuration,
+//         and the package name /ActiveEcuC
+//   [A6]  how a container lists its children: module.container, container.subContainer
+//   [A7]  how a container tells its definition: container.definition.refPath
+//         .autosarPathString, and its name: container.shortname
+//   [A8]  how parameter and reference values are read: container.parameter,
+//         container.reference, value.definition..., value.value, reference target path
+//   [A9]  how a sub-container and its values are created: byNameOrCreate / createAndAdd,
+//         and how an integer value and a reference value are set
+//   [A10] the names of the RTE definition: RteSwComponentInstance, RteEventToTaskMapping,
+//         RteEventRef, RteMappedToTaskRef, RtePositionInTask (AUTOSAR standard names;
+//         a Vector SIP may differ), and OsTask in the Os module
+//   [A11] validation { validationResults }, result.id.origin, result.severity,
+//         result.description, result.preferredSolvingAction, action.solve()
+//   [A12] saveProject() for the project that DVCfgCmd has loaded
+//   [A13] groovy.json.JsonSlurper / JsonOutput can be used inside a script
+//   [A14] System.getenv(...) sees the environment that PortTool gave to DVCfgCmd
+//
+//  HOW PORTTOOL USES IT
+//   PortTool starts DVCfgCmd with the script task "PortToolMapEvents" and sets:
+//     PORTTOOL_REQUEST_JSON   file to read  (events: SWC, runnable, event path, task, position)
+//     PORTTOOL_RESULT_JSON    file to write (steps, events, solving actions, saved, complete)
+//   The result file is rewritten after every step, with "complete": false until the very
+//   end. A step that fails is recorded in the result instead of ending the script.
+//   The formats are described in README.md next to this file.
+// =====================================================================================
+
+import static com.vector.cfg.automation.api.ScriptApi.*                       // [A1]
+
+import groovy.json.JsonOutput                                                 // [A13]
+import groovy.json.JsonSlurper                                                // [A13]
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+
+daVinci {                                                                     // [A2]
+
+    // =================================================================================
+    //  CONFIGURATOR API: every call into DaVinci Configurator is in this section.
+    // =================================================================================
+
+    // [A3] Logging. PortTool reads these lines from the output of DVCfgCmd.
+    def logInfo = { String text -> scriptLogger.info("PortTool: " + text) }
+    def logWarn = { String text -> scriptLogger.warn("PortTool: WARNING " + text) }
+    def logError = { String text -> scriptLogger.error("PortTool: ERROR " + text) }
+
+    // [A4] One change of the model. Returns what the body returns.
+    def inTransaction = { Closure body -> transaction { body.call() } }
+
+    // [A5] The configuration of one module of the active ECU configuration, or null.
+    def moduleConfiguration = { String moduleName ->
+        mdfModel(AsrPath.create("/ActiveEcuC/" + moduleName))
+    }
+
+    // [A6] Direct children of a module configuration or of a container.
+    def childrenOfModule = { module -> module.container.collect { it } }
+    def childrenOfContainer = { container -> container.subContainer.collect { it } }
+
+    // [A7] Last segment of the definition path of a container, e.g. "RteEventToTaskMapping".
+    def definitionName = { element ->
+        String path = element.definition?.refPath?.autosarPathString
+        path == null ? "" : path.substring(path.lastIndexOf("/") + 1)
+    }
+    // [A7] Short name of a container.
+    def shortName = { element -> element.shortname as String }
+
+    // [A8] Text of the reference value with the given definition name, or null.
+    def referenceTarget = { container, String defName ->
+        def value = container.reference.find { definitionName(it) == defName }
+        value == null ? null : (value.value?.refPath?.autosarPathString as String)
+    }
+    // [A8] Number of the integer parameter with the given definition name, or null.
+    def integerValue = { container, String defName ->
+        def value = container.parameter.find { definitionName(it) == defName }
+        value == null ? null : (value.value as Integer)
+    }
+
+    // [A9] Create a sub-container with the given definition name and short name.
+    def createSubContainer = { parent, String defName, String name ->
+        parent.subContainer.byNameOrCreate(name, defName)
+    }
+    // [A9] Set (create if needed) a reference value of a container to an AUTOSAR path.
+    def setReference = { container, String defName, String targetPath ->
+        container.reference.byDefNameOrCreate(defName).setRefTarget(AsrPath.create(targetPath))
+    }
+    // [A9] Set (create if needed) an integer parameter of a container.
+    def setInteger = { container, String defName, int number ->
+        container.parameter.byDefNameOrCreate(defName).setValue(number)
+    }
+
+    // [A11] All validation results of the loaded project.
+    def allValidationResults = { validation { validationResults.collect { it } } }
+    // [A11] Origin of a result, e.g. "RTE" or "OS".
+    def resultOrigin = { result -> (result.id?.origin as String) ?: "" }
+    // [A11] True for a result of severity error.
+    def resultIsError = { result -> (result.severity as String).toUpperCase().contains("ERROR") }
+    // [A11] Identifier of a result, e.g. "RTE01039".
+    def resultId = { result -> "${result.id?.origin}${result.id?.id}" as String }
+    // [A11] Identifier and text of a result (goes to the result file, not to the log).
+    def resultText = { result -> "${resultId(result)} ${result.description}" as String }
+    // [A11] The preferred solving action of a result, or null.
+    def preferredAction = { result -> result.preferredSolvingAction }
+    // [A11] Apply one solving action.
+    def applyAction = { action -> action.solve() }
+
+    // [A12] Save the project that DVCfgCmd has loaded.
+    def saveLoadedProject = { saveProject() }
+
+    // [A14] A setting PortTool passes through the environment.
+    def setting = { String name -> System.getenv(name) }
+
+    // =================================================================================
+    //  Plain Groovy below: no call into the Configurator except through the closures above.
+    // =================================================================================
+
+    // [A10] Names of the RTE and OS definitions. AUTOSAR standard names.
+    def DEF_SWC_INSTANCE = "RteSwComponentInstance"
+    def DEF_EVENT_MAPPING = "RteEventToTaskMapping"
+    def DEF_EVENT_REF = "RteEventRef"
+    def DEF_TASK_REF = "RteMappedToTaskRef"
+    def DEF_POSITION = "RtePositionInTask"
+    def DEF_OS_TASK = "OsTask"
+
+    def readJson = { String path ->
+        new JsonSlurper().parseText(new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8))
+    }
+
+    // Writes the result through a temporary file, so PortTool never reads half a file.
+    def writeJson = { String path, Map document ->
+        def target = Paths.get(path)
+        def temporary = Paths.get(path + ".tmp")
+        def text = JsonOutput.prettyPrint(JsonOutput.toJson(document))
+        Files.write(temporary, text.getBytes(StandardCharsets.UTF_8))
+        Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    def describe = { Throwable problem -> "${problem.getClass().getName()}: ${problem.getMessage()}" as String }
+
+    // All event mappings of the RTE: [container, instance, eventPath, taskPath, position].
+    def existingMappings = { rte ->
+        def found = []
+        childrenOfModule(rte).findAll { definitionName(it) == DEF_SWC_INSTANCE }.each { instance ->
+            childrenOfContainer(instance).findAll { definitionName(it) == DEF_EVENT_MAPPING }.each { mapping ->
+                found << [container: mapping, instance: instance,
+                          eventPath: referenceTarget(mapping, DEF_EVENT_REF),
+                          taskPath: referenceTarget(mapping, DEF_TASK_REF),
+                          position: integerValue(mapping, DEF_POSITION)]
+            }
+        }
+        found
+    }
+
+    def lastSegment = { String path -> path == null ? "" : path.substring(path.lastIndexOf("/") + 1) }
+
+    // The RteSwComponentInstance an event belongs to: the one that already holds a
+    // mapping of an event of the same SWC, else the one named like the SWC.
+    def instanceFor = { rte, List mappings, Map event ->
+        String eventPath = event.event_path
+        // "/Pkg/Swc/Behavior/Event" -> "/Pkg/Swc/": events of the same SWC share it.
+        def parts = eventPath.split("/")
+        String swcPrefix = parts.length > 3 ? parts[0..(parts.length - 3)].join("/") + "/" : null
+        def sibling = swcPrefix == null ? null :
+            mappings.find { it.eventPath != null && it.eventPath.startsWith(swcPrefix) }
+        if (sibling != null) {
+            return sibling.instance
+        }
+        childrenOfModule(rte).find {
+            definitionName(it) == DEF_SWC_INSTANCE && shortName(it) == (event.swc as String)
+        }
+    }
+
+    // Maps one event. Returns the entry for the result file. Never throws.
+    def mapOneEvent = { rte, os, Map event ->
+        def entry = [event_path: event.event_path, task: event.task, status: "failed", message: ""]
+        try {
+            def mappings = existingMappings(rte)
+            def already = mappings.find { it.eventPath == event.event_path }
+            if (already != null) {
+                String mappedTask = lastSegment(already.taskPath as String)
+                entry.task = mappedTask
+                if (mappedTask == event.task) {
+                    entry.status = "already_mapped"
+                    entry.message = "the event was mapped to this task before"
+                } else {
+                    entry.message = "the event is already mapped to the task ${mappedTask}; not changed" as String
+                }
+                return entry
+            }
+            def task = childrenOfModule(os).find {
+                definitionName(it) == DEF_OS_TASK && shortName(it) == (event.task as String)
+            }
+            if (task == null) {
+                entry.message = "the OS has no task named ${event.task}" as String
+                return entry
+            }
+            def instance = instanceFor(rte, mappings, event)
+            if (instance == null) {
+                entry.message = "no ${DEF_SWC_INSTANCE} was found for the SWC ${event.swc}" as String
+                return entry
+            }
+            String taskPath = "/ActiveEcuC/Os/" + event.task
+            def inTask = mappings.findAll { it.taskPath == taskPath && it.position != null }
+            Integer position = event.position as Integer
+            if (position == null && event.position_after_event != null) {
+                def before = mappings.find { it.eventPath == event.position_after_event }
+                if (before != null && before.position != null) {
+                    position = (before.position as Integer) + 1
+                }
+            }
+            if (position == null) {
+                position = inTask.isEmpty() ? 0 : (inTask.collect { it.position as Integer }.max() + 1)
+            }
+            inTransaction {
+                // Make room: events at or after the wanted position move one place back.
+                inTask.findAll { (it.position as Integer) >= position }.each {
+                    setInteger(it.container, DEF_POSITION, (it.position as Integer) + 1)
+                }
+                def mapping = createSubContainer(instance, DEF_EVENT_MAPPING, lastSegment(event.event_path as String))
+                setReference(mapping, DEF_EVENT_REF, event.event_path as String)
+                setReference(mapping, DEF_TASK_REF, taskPath)
+                setInteger(mapping, DEF_POSITION, position)
+            }
+            entry.status = "mapped"
+            entry.message = "mapped at position ${position}" as String
+        } catch (Throwable problem) {
+            entry.status = "failed"
+            entry.message = describe(problem)
+        }
+        entry
+    }
+
+    // ---------------------------------------------------------------------------------
+    //  Task 1: map events to tasks, apply preferred solving actions, save.
+    // ---------------------------------------------------------------------------------
+    scriptTask("PortToolMapEvents", DV_PROJECT) {                             // [A2]
+        taskDescription "PortTool (EXPERIMENTAL): map RTE events to tasks from a JSON request"
+
+        code {
+            String requestPath = setting("PORTTOOL_REQUEST_JSON")
+            String resultPath = setting("PORTTOOL_RESULT_JSON")
+            def result = [format: "porttool-script-result", format_version: 1, complete: false,
+                          saved: false, steps: [], events: [],
+                          solving_actions: [attempted: 0, applied: 0, failed: 0,
+                                            remaining_errors: null, messages: []]]
+
+            def writeResult = {
+                if (resultPath != null) {
+                    try {
+                        writeJson(resultPath, result)
+                    } catch (Throwable problem) {
+                        logError("the result file ${resultPath} cannot be written: ${describe(problem)}")
+                    }
+                }
+            }
+
+            // Runs one step. A failure is recorded and logged, never thrown.
+            def step = { String name, Closure body ->
+                def entry = [name: name, ok: false, message: ""]
+                result.steps << entry
+                logInfo("step ${name}: start")
+                def value = null
+                try {
+                    value = body.call()
+                    entry.ok = true
+                    logInfo("step ${name}: done")
+                } catch (Throwable problem) {
+                    entry.message = describe(problem)
+                    logError("step ${name} failed: ${entry.message}")
+                }
+                writeResult()
+                value
+            }
+
+            if (requestPath == null || resultPath == null) {
+                logError("PORTTOOL_REQUEST_JSON and PORTTOOL_RESULT_JSON must be set; nothing was done")
+                return
+            }
+            writeResult()
+
+            def request = step("read-request") { readJson(requestPath) }
+            def rte = step("find-rte") {
+                def module = moduleConfiguration("Rte")
+                if (module == null) { throw new IllegalStateException("no module /ActiveEcuC/Rte") }
+                module
+            }
+            def os = step("find-os") {
+                def module = moduleConfiguration("Os")
+                if (module == null) { throw new IllegalStateException("no module /ActiveEcuC/Os") }
+                module
+            }
+
+            boolean changed = false
+            if (request != null && rte != null && os != null) {
+                step("map-events") {
+                    (request.events ?: []).each { event ->
+                        def entry = mapOneEvent(rte, os, event as Map)
+                        result.events << entry
+                        if (entry.status == "mapped") {
+                            changed = true
+                            logInfo("event ${entry.event_path} -> task ${entry.task}: ${entry.message}")
+                        } else if (entry.status == "already_mapped") {
+                            logInfo("event ${entry.event_path}: ${entry.message}")
+                        } else {
+                            logError("event ${entry.event_path} was not mapped: ${entry.message}")
+                        }
+                        writeResult()
+                    }
+                }
+            }
+
+            def options = (request?.options ?: [:]) as Map
+            def origins = ((options.solving_action_origins ?: ["RTE", "OS"]) as List).collect {
+                (it as String).toUpperCase()
+            }
+            def ours = { r -> origins.contains(resultOrigin(r).toUpperCase()) }
+
+            if (request != null && options.apply_solving_actions != false) {
+                step("solving-actions") {
+                    def solving = result.solving_actions
+                    allValidationResults().findAll { ours(it) && preferredAction(it) != null }.each { r ->
+                        solving.attempted = (solving.attempted as int) + 1
+                        try {
+                            inTransaction { applyAction(preferredAction(r)) }
+                            solving.applied = (solving.applied as int) + 1
+                            changed = true
+                            logInfo("solved: ${resultId(r)}")
+                        } catch (Throwable problem) {
+                            solving.failed = (solving.failed as int) + 1
+                            solving.messages << ("not solved: ${resultText(r)}: ${describe(problem)}" as String)
+                            logWarn("not solved: ${resultId(r)}")
+                        }
+                    }
+                }
+            }
+
+            // Log lines of this step name only the identifier: the text of a validation
+            // message may hold words that PortTool would count as a failure of the tool.
+            step("count-remaining-problems") {
+                def remaining = allValidationResults().findAll { ours(it) && resultIsError(it) }
+                result.solving_actions.remaining_errors = remaining.size()
+                remaining.take(20).each { r ->
+                    result.solving_actions.messages << ("remaining: ${resultText(r)}" as String)
+                    logWarn("remaining validation message: ${resultId(r)}")
+                }
+            }
+
+            if (changed && options.save_project != false) {
+                step("save-project") {
+                    saveLoadedProject()
+                    result.saved = true
+                }
+            }
+
+            result.complete = true
+            writeResult()
+            logInfo("finished: ${result.events.count { it.status == 'mapped' }} event(s) mapped, " +
+                    "project saved: ${result.saved}")
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //  Task 2: report the validation results. Changes nothing, saves nothing.
+    //  Every error is logged as a line with the word ERROR, which PortTool counts.
+    // ---------------------------------------------------------------------------------
+    scriptTask("PortToolValidate", DV_PROJECT) {                              // [A2]
+        taskDescription "PortTool (EXPERIMENTAL): report the validation results of the project"
+
+        code {
+            try {
+                def results = allValidationResults()
+                def errors = results.findAll { resultIsError(it) }
+                errors.each { r -> logError("validation: ${resultText(r)}") }
+                // "0 errors" is not counted as a failure by PortTool; "3 errors" is.
+                logInfo("validation finished: ${errors.size()} errors, " +
+                        "${results.size()} messages in total")
+            } catch (Throwable problem) {
+                logError("the validation results could not be read: ${describe(problem)}")
+            }
+        }
+    }
+}
