@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "porttool"
-version = "0.0.1"
+version = "0.1.0"
 description = "AUTOSAR Classic port and connection tool for DaVinci Developer / Configurator 5 projects (Windows only)"
 requires-python = ">=3.11"
 dependencies = [
