@@ -40,6 +40,7 @@ markers = [
 
 [tool.mypy]
 strict = true
+exclude = ["^docs/"]
 
 [[tool.mypy.overrides]]
 module = ["lxml.*", "xlsxwriter.*", "openpyxl.*", "psutil.*"]
@@ -48,6 +49,7 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["docs/guide"]  # builds the PDF guide; long table rows
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "ASYNC", "S602", "S604", "S605"]
